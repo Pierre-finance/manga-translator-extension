@@ -1,0 +1,16 @@
+# Outils
+.claude/
+.vscode/
+node_modules/
+
+# Logs
+*.log
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Images de test (à ne pas versionner)
+test-images/
+
+# Les icônes PNG dans icons/ sont versionnées intentionnellement

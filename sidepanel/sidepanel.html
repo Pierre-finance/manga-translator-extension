@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Manga Translator</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <header class="header">
+    <span class="header-logo">漫</span>
+    <span class="header-title">Manga Translator</span>
+  </header>
+
+  <main class="main">
+    <button id="captureBtn" class="capture-btn">
+      <span class="btn-icon">📸</span>
+      <span class="btn-label">Capturer et traduire</span>
+    </button>
+
+    <section id="resultZone" class="result-zone">
+      <div id="stateEmpty" class="state-empty">
+        <p class="state-hint">Clique sur Capturer pendant que tu lis ton scan</p>
+      </div>
+
+      <div id="stateSuccess" class="state-success hidden">
+        <img id="capturePreview" class="capture-preview" alt="Aperçu de la capture" />
+        <p class="state-msg success-msg">Capture réussie ✓<br /><span class="state-sub">OCR à venir à l'étape 2</span></p>
+      </div>
+
+      <div id="stateError" class="state-error hidden">
+        <span class="error-icon">⚠️</span>
+        <p id="errorMessage" class="error-message"></p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>v0.1.0</span>
+  </footer>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

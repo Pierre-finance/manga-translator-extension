@@ -1,0 +1,204 @@
+:root {
+  --bg-primary: #0f0f17;
+  --bg-secondary: #1a1a25;
+  --accent-blue: #4a90e2;
+  --accent-purple: #9b59b6;
+  --text-primary: #fff;
+  --text-secondary: #a0a0b0;
+  --border: #2a2a3a;
+  --success: #2ecc71;
+  --error: #e74c3c;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* ── Header ── */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.header-logo {
+  font-size: 22px;
+  line-height: 1;
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.header-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* ── Main ── */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px 16px;
+}
+
+/* ── Capture button ── */
+.capture-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 20px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+}
+
+.capture-btn:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.capture-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.capture-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.capture-btn.loading .btn-icon {
+  display: inline-block;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.btn-icon {
+  font-size: 18px;
+}
+
+/* ── Result zone ── */
+.result-zone {
+  flex: 1;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* Empty state */
+.state-empty {
+  text-align: center;
+}
+
+.state-hint {
+  color: var(--text-secondary);
+  line-height: 1.5;
+  max-width: 200px;
+  margin: 0 auto;
+}
+
+/* Success state */
+.state-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+
+.capture-preview {
+  max-height: 200px;
+  max-width: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  object-fit: contain;
+}
+
+.state-msg {
+  text-align: center;
+  line-height: 1.6;
+}
+
+.success-msg {
+  color: var(--success);
+  font-weight: 500;
+}
+
+.state-sub {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* Error state */
+.state-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.error-icon {
+  font-size: 28px;
+}
+
+.error-message {
+  color: var(--error);
+  line-height: 1.5;
+  max-width: 220px;
+}
+
+/* ── Footer ── */
+.footer {
+  padding: 10px 16px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 11px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
