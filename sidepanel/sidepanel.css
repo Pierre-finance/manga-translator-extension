@@ -8,6 +8,7 @@
   --border: #2a2a3a;
   --success: #2ecc71;
   --error: #e74c3c;
+  --warning: #f39c12;
 }
 
 * {
@@ -16,8 +17,7 @@
   padding: 0;
 }
 
-html,
-body {
+html, body {
   height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: var(--bg-primary);
@@ -36,7 +36,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 16px;
+  padding: 12px 16px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -62,8 +62,17 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  padding: 20px 16px;
+  gap: 14px;
+  padding: 16px;
+  overflow: hidden;
+}
+
+/* ── Controls ── */
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 /* ── Capture button ── */
@@ -73,7 +82,7 @@ body {
   justify-content: center;
   gap: 10px;
   width: 100%;
-  padding: 14px 20px;
+  padding: 13px 20px;
   border: none;
   border-radius: 10px;
   background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
@@ -98,17 +107,75 @@ body {
   cursor: not-allowed;
 }
 
-.capture-btn.loading .btn-icon {
-  display: inline-block;
-  animation: spin 0.9s linear infinite;
+.btn-sm {
+  flex: 1;
+  padding: 10px 12px;
+  font-size: 13px;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
+/* ── État sélection de zone ── */
+.state-select {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.select-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 8px 12px 6px;
+  flex-shrink: 0;
+}
+
+.select-canvas-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 8px;
+  cursor: crosshair;
+}
+
+#selectCanvas {
+  display: block;
+  cursor: crosshair;
+  border-radius: 4px;
+}
+
+.select-actions {
+  display: flex;
+  gap: 6px;
+  padding: 10px 12px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
 }
 
 .btn-icon {
-  font-size: 18px;
+  font-size: 17px;
+}
+
+/* ── Preprocessing toggle ── */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 0 2px;
+  user-select: none;
+}
+
+.toggle-row input[type="checkbox"] {
+  accent-color: var(--accent-blue);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.toggle-label {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 /* ── Result zone ── */
@@ -117,69 +184,220 @@ body {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 20px 16px;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 160px;
 }
 
 .hidden {
   display: none !important;
 }
 
-/* Empty state */
+/* ── Empty state ── */
 .state-empty {
-  text-align: center;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
 }
 
 .state-hint {
   color: var(--text-secondary);
-  line-height: 1.5;
+  line-height: 1.6;
+  text-align: center;
   max-width: 200px;
-  margin: 0 auto;
 }
 
-/* Success state */
+/* ── Progress state ── */
+.state-progress {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+}
+
+.progress-spinner {
+  font-size: 28px;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.progress-text {
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* ── Success state ── */
 .state-success {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
+  padding: 12px;
+  gap: 10px;
+}
+
+.previews-row {
+  display: flex;
+  gap: 8px;
+}
+
+.preview-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.preview-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-align: center;
 }
 
 .capture-preview {
-  max-height: 200px;
-  max-width: 100%;
+  width: 100%;
+  max-height: 120px;
   border-radius: 6px;
   border: 1px solid var(--border);
   object-fit: contain;
+  background: #000;
 }
 
-.state-msg {
-  text-align: center;
-  line-height: 1.6;
+.blocks-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.success-msg {
-  color: var(--success);
-  font-weight: 500;
+.blocks-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
 }
 
-.state-sub {
+.blocks-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-secondary {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
   color: var(--text-secondary);
   font-size: 12px;
-  font-weight: 400;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+  white-space: nowrap;
 }
 
-/* Error state */
+.btn-secondary:hover {
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+.btn-secondary.btn-copied {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+/* ── Blocks container ── */
+.blocks-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.block-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.block-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.block-num {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.03em;
+}
+
+.badge-green  { background: rgba(46, 204, 113, 0.18); color: var(--success); }
+.badge-orange { background: rgba(243, 156, 18, 0.18); color: var(--warning); }
+.badge-red    { background: rgba(231, 76, 60, 0.18);  color: var(--error); }
+
+.btn-copy-block {
+  margin-left: auto;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.btn-copy-block:hover {
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+.btn-copy-block.btn-copied {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.block-text {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.no-text-msg {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  text-align: center;
+  padding: 16px 0;
+}
+
+/* ── Error state ── */
 .state-error {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
   text-align: center;
 }
 
@@ -191,11 +409,16 @@ body {
   color: var(--error);
   line-height: 1.5;
   max-width: 220px;
+  font-size: 13px;
+}
+
+.btn-retry {
+  margin-top: 4px;
 }
 
 /* ── Footer ── */
 .footer {
-  padding: 10px 16px;
+  padding: 8px 16px;
   text-align: center;
   color: var(--text-secondary);
   font-size: 11px;

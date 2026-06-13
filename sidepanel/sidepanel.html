@@ -13,25 +13,75 @@
   </header>
 
   <main class="main">
-    <button id="captureBtn" class="capture-btn">
-      <span class="btn-icon">📸</span>
-      <span class="btn-label">Capturer et traduire</span>
-    </button>
+    <div class="controls">
+      <button id="captureBtn" class="capture-btn">
+        <span class="btn-icon">📸</span>
+        <span class="btn-label">Capturer et traduire</span>
+      </button>
+
+      <label class="toggle-row">
+        <input type="checkbox" id="preprocessToggle" />
+        <span class="toggle-label">Pré-traitement de l'image</span>
+      </label>
+    </div>
 
     <section id="resultZone" class="result-zone">
+
+      <!-- État vide -->
       <div id="stateEmpty" class="state-empty">
         <p class="state-hint">Clique sur Capturer pendant que tu lis ton scan</p>
       </div>
 
-      <div id="stateSuccess" class="state-success hidden">
-        <img id="capturePreview" class="capture-preview" alt="Aperçu de la capture" />
-        <p class="state-msg success-msg">Capture réussie ✓<br /><span class="state-sub">OCR à venir à l'étape 2</span></p>
+      <!-- État chargement / progression -->
+      <div id="stateProgress" class="state-progress hidden">
+        <span class="progress-spinner">⏳</span>
+        <p id="progressText" class="progress-text">Préparation…</p>
       </div>
 
+      <!-- État sélection de zone -->
+      <div id="stateSelect" class="state-select hidden">
+        <p class="select-hint">Dessine un rectangle sur la bulle à analyser</p>
+        <div class="select-canvas-wrap">
+          <canvas id="selectCanvas"></canvas>
+        </div>
+        <div class="select-actions">
+          <button id="analyzeSelBtn" class="capture-btn btn-sm">Analyser la sélection</button>
+          <button id="analyzeAllBtn" class="btn-secondary">Toute l'image</button>
+          <button id="recaptureBtn" class="btn-secondary">↩ Recapturer</button>
+        </div>
+      </div>
+
+      <!-- État succès -->
+      <div id="stateSuccess" class="state-success hidden">
+        <div class="previews-row">
+          <div class="preview-wrap">
+            <img id="capturePreview" class="capture-preview" alt="Capture originale" />
+            <span class="preview-label">Original</span>
+          </div>
+          <div id="preprocessPreviewWrap" class="preview-wrap hidden">
+            <img id="preprocessPreview" class="capture-preview" alt="Image pré-traitée" />
+            <span class="preview-label">Pré-traité (OCR)</span>
+          </div>
+        </div>
+
+        <div class="blocks-header">
+          <span id="blocksCount" class="blocks-count"></span>
+          <div class="blocks-actions">
+            <button id="copyAllBtn" class="btn-secondary">Copier tout</button>
+            <button id="newCaptureBtn" class="btn-secondary">Nouvelle capture</button>
+          </div>
+        </div>
+
+        <div id="blocksContainer" class="blocks-container"></div>
+      </div>
+
+      <!-- État erreur -->
       <div id="stateError" class="state-error hidden">
         <span class="error-icon">⚠️</span>
         <p id="errorMessage" class="error-message"></p>
+        <button id="retryBtn" class="btn-secondary btn-retry">Réessayer</button>
       </div>
+
     </section>
   </main>
 
@@ -39,6 +89,10 @@
     <span>v0.1.0</span>
   </footer>
 
+  <script src="../lib/tesseract/tesseract.min.js"></script>
+  <script src="preprocess.js"></script>
+  <script src="cleantext.js"></script>
+  <script src="selector.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>
