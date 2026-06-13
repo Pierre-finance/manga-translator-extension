@@ -351,8 +351,9 @@ body {
 .badge-orange { background: rgba(243, 156, 18, 0.18); color: var(--warning); }
 .badge-red    { background: rgba(231, 76, 60, 0.18);  color: var(--error); }
 
+/* Bouton copier par bloc */
 .btn-copy-block {
-  margin-left: auto;
+  flex-shrink: 0;
   padding: 3px 8px;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -362,17 +363,63 @@ body {
   cursor: pointer;
   transition: border-color 0.15s, color 0.15s;
 }
+.btn-copy-block:hover:not(:disabled) { border-color: var(--accent-blue); color: var(--accent-blue); }
+.btn-copy-block.btn-copied           { border-color: var(--success); color: var(--success); }
+.btn-copy-block:disabled             { opacity: 0.4; cursor: not-allowed; }
 
-.btn-copy-block:hover {
-  border-color: var(--accent-blue);
-  color: var(--accent-blue);
+/* Bouton ↻ retraduire */
+.btn-retranslate {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+.btn-retranslate:hover { color: var(--accent-blue); }
+
+/* Section langue (EN ou FR) */
+.block-lang {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 0;
+}
+.block-lang + .block-lang {
+  border-top: 1px solid var(--border);
 }
 
-.btn-copy-block.btn-copied {
-  border-color: var(--success);
-  color: var(--success);
+.lang-flag {
+  font-size: 14px;
+  flex-shrink: 0;
+  margin-top: 1px;
 }
 
+.block-lang-text {
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-width: 0;
+}
+
+.block-en .block-lang-text { color: #7ab3e8; }
+.block-fr .block-lang-text { color: #7dd3a8; }
+
+/* États de traduction */
+.block-lang-text.translating {
+  color: var(--text-secondary);
+  font-style: italic;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.block-lang-text.translate-error { color: var(--error); font-style: italic; }
+
+/* Hack pour que .block-text (texte pur, si toujours utilisé) reste compatible */
 .block-text {
   font-size: 13px;
   line-height: 1.55;
