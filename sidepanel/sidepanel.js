@@ -37,6 +37,9 @@ const saveKeyMsg       = document.getElementById('saveKeyMsg');
 let currentBlocks    = [];
 let capturedDataURL  = null;
 let selectorInstance = null;
+let lastRequestTime  = 0;
+
+const MIN_INTERVAL_MS = 6000; // 6s entre requêtes (protection quota/minute)
 
 const ALL_STATES = [stateEmpty, stateProgress, stateSelect, stateSuccess, stateError];
 
@@ -153,6 +156,25 @@ async function showSelectState(dataURL) {
 // ── Analysis ───────────────────────────────────────────────────────────────────
 async function runAnalysis(selection) {
   if (!capturedDataURL) { showState(stateEmpty); return; }
+
+  // Vérification clé avant throttle (clé absente ≠ requête émise)
+  const hasKey = await new Promise(r =>
+    chrome.storage.local.get('geminiApiKey', d => r(!!d.geminiApiKey))
+  );
+  if (!hasKey) {
+    showError('Clé API Gemini non configurée. Ouvre les réglages (⚙️) pour la saisir.');
+    openSettings();
+    return;
+  }
+
+  // Throttle côté client (protection quota/minute)
+  const elapsed = Date.now() - lastRequestTime;
+  if (elapsed < MIN_INTERVAL_MS) {
+    const wait = Math.ceil((MIN_INTERVAL_MS - elapsed) / 1000);
+    showError(`Patiente encore ${wait}s avant la prochaine analyse (limite gratuite Gemini).`);
+    return;
+  }
+
   setLoading(true);
   try {
     let imageUrl = capturedDataURL;
@@ -162,11 +184,13 @@ async function runAnalysis(selection) {
       imageUrl = await cropImage(capturedDataURL, selection);
     }
 
-    const base64   = imageUrl.split(',')[1];
-    const mimeType = imageUrl.split(';')[0].split(':')[1] || 'image/png';
+    updateStatus('Compression de l\'image…');
+    const resized = await resizeForGemini(imageUrl);
+    const base64  = resized.split(',')[1];
 
+    lastRequestTime = Date.now();
     updateStatus('Analyse par l\'IA…');
-    const blocks = await analyzeImage(base64, mimeType);
+    const blocks = await analyzeImage(base64, 'image/jpeg');
     console.log('[MT] Gemini:', blocks.length, 'bloc(s)');
 
     renderResults(capturedDataURL, blocks);
@@ -181,6 +205,25 @@ async function runAnalysis(selection) {
   } finally {
     setLoading(false);
   }
+}
+
+// Redimensionne à 1280px max et encode en JPEG pour réduire les tokens Gemini.
+function resizeForGemini(dataURL, maxDim = 1280, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const w = Math.round(img.width  * scale);
+      const h = Math.round(img.height * scale);
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      console.log(`[MT] Image redimensionnée: ${img.width}×${img.height} → ${w}×${h} JPEG`);
+      resolve(c.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = reject;
+    img.src = dataURL;
+  });
 }
 
 function cropImage(dataURL, { x, y, w, h }) {

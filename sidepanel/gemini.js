@@ -1,4 +1,4 @@
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_MODEL = 'gemini-2.5-flash';
 
 const GEMINI_PROMPT = `You are a manga translation assistant. Analyze this manga page or panel image.
 
@@ -57,7 +57,16 @@ async function analyzeImage(base64Image, mimeType = 'image/png') {
     throw err;
   }
   if (response.status === 429) {
-    const err = new Error('Quota Gemini dépassé. Réessaie dans quelques minutes.');
+    let detail = '';
+    try {
+      const errData = await response.json();
+      detail = errData?.error?.message || '';
+    } catch { /* corps illisible */ }
+    const msg = detail
+      ? `Quota Gemini dépassé — ${detail}`
+      : 'Quota Gemini dépassé. Réessaie dans quelques minutes.';
+    console.error('[MT] 429 Gemini:', detail || '(pas de détail)');
+    const err = new Error(msg);
     err.code = 'QUOTA';
     throw err;
   }
