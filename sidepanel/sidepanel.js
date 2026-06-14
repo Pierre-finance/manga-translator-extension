@@ -16,6 +16,7 @@ const analyzeSelBtn       = document.getElementById('analyzeSelBtn');
 const analyzeAllBtn       = document.getElementById('analyzeAllBtn');
 const recaptureBtn        = document.getElementById('recaptureBtn');
 
+const qualityWarn         = document.getElementById('qualityWarn');
 const capturePreview      = document.getElementById('capturePreview');
 const preprocessPreview   = document.getElementById('preprocessPreview');
 const preprocessPreviewWrap = document.getElementById('preprocessPreviewWrap');
@@ -82,6 +83,66 @@ async function initWorker() {
   });
 }
 
+// ── PSM dynamique ─────────────────────────────────────────────────────────────
+
+// PSM 7 = ligne unique (sélection très large/basse), PSM 6 = bloc uniforme
+function choosePsm(selection) {
+  if (!selection) return 6;
+  return (selection.w / (selection.h || 1)) > 4 ? 7 : 6;
+}
+
+// ── OCR avec re-zoom automatique ──────────────────────────────────────────────
+
+async function recognizeWithRetry(imageUrl, selection) {
+  const psm = choosePsm(selection);
+  await tesseractWorker.setParameters({
+    tessedit_pageseg_mode: String(psm),
+    preserve_interword_spaces: '1',
+    user_defined_dpi: '300',
+  });
+
+  updateStatus('Analyse en cours… 0%');
+  const pass1 = await tesseractWorker.recognize(imageUrl);
+  const conf1  = pass1.data.confidence ?? 0;
+  const words  = (pass1.data.words || []).filter(w => w.text.trim().length > 0);
+  const ratio1 = unknownWordRatio(words.map(w => w.text).join(' '));
+  console.log(`[MT] Passe 1: conf ${Math.round(conf1)}%, inconnus: ${Math.round(ratio1 * 100)}%, mots: ${words.length}`);
+
+  // Retry si confiance faible OU trop de mots non reconnus par le dictionnaire
+  if (conf1 >= 60 && ratio1 < 0.35) return { result: pass1, retried: false };
+
+  if (words.length < 2) {
+    console.log('[MT] Pas assez de mots pour le re-zoom');
+    return { result: pass1, retried: false };
+  }
+
+  const x0 = Math.min(...words.map(w => w.bbox.x0));
+  const y0 = Math.min(...words.map(w => w.bbox.y0));
+  const x1 = Math.max(...words.map(w => w.bbox.x1));
+  const y1 = Math.max(...words.map(w => w.bbox.y1));
+  const mX = Math.max(8, Math.round((x1 - x0) * 0.08));
+  const mY = Math.max(8, Math.round((y1 - y0) * 0.08));
+
+  updateStatus('Re-zoom automatique…');
+  const zoomed = await cropAndUpscale(imageUrl, {
+    x: x0 - mX, y: y0 - mY,
+    w: (x1 - x0) + 2 * mX,
+    h: (y1 - y0) + 2 * mY,
+  }, 3);
+
+  updateStatus('Re-zoom… 0%');
+  const pass2 = await tesseractWorker.recognize(zoomed);
+  const conf2 = pass2.data.confidence ?? 0;
+  console.log(`[MT] Passe 2 (re-zoom): conf ${Math.round(conf2)}%, mots: ${pass2.data.words?.length ?? 0}`);
+
+  if (conf2 > conf1) {
+    console.log('[MT] Re-zoom retenu');
+    return { result: pass2, retried: true };
+  }
+  console.log('[MT] Re-zoom n\'améliore pas, passe 1 retenue');
+  return { result: pass1, retried: false };
+}
+
 // ── Étape 1 : Capture ────────────────────────────────────────────────────────
 
 async function runPipeline() {
@@ -142,19 +203,29 @@ async function runAnalysis(selection) {
       imageUrl = await preprocessImage(imageUrl);
       processedUrl = imageUrl;
       console.log('[MT] 3. Pré-traitement OK');
+    } else {
+      // Même sans pré-traitement complet : inversion auto si fond sombre
+      const invRes = await autoInvertIfNeeded(imageUrl);
+      if (invRes.inverted) {
+        imageUrl = invRes.url;
+        processedUrl = invRes.url;
+        console.log('[MT] 3. Auto-inversion (fond sombre, pré-traitement désactivé)');
+      }
     }
 
     await initWorker();
     console.log('[MT] 4. Worker prêt');
-    updateStatus('Analyse en cours… 0%');
-    const ocrResult = await tesseractWorker.recognize(imageUrl);
-    console.log('[MT] 5. OCR terminé, blocs bruts:', ocrResult.data.blocks?.length);
+    const { result: ocrResult, retried } = await recognizeWithRetry(imageUrl, selection);
+    const overallConf = ocrResult.data.confidence ?? 0;
+    console.log(`[MT] 5. OCR terminé, blocs bruts: ${ocrResult.data.blocks?.length} — conf: ${Math.round(overallConf)}%${retried ? ' (re-zoom)' : ''}`);
 
     updateStatus('Nettoyage du texte…');
-    const cleaned = cleanBlocks(ocrResult.data.blocks || []);
+    const fixedBlocks     = fixBlockSpacing(ocrResult.data.blocks || []);
+    const correctedBlocks = dictCorrectBlocks(fixedBlocks);
+    const cleaned         = cleanBlocks(correctedBlocks);
     console.log('[MT] 6. Blocs nettoyés:', cleaned.length);
 
-    renderResults(capturedDataURL, cleaned, processedUrl);
+    renderResults(capturedDataURL, cleaned, processedUrl, overallConf, retried);
 
   } catch (err) {
     console.error('[MT] Erreur analyse:', err);
@@ -181,12 +252,28 @@ function cropImage(dataURL, { x, y, w, h }) {
 
 // ── Affichage des résultats ───────────────────────────────────────────────────
 
-function renderResults(imageUrl, blocks, processedUrl = null) {
+function renderResults(imageUrl, blocks, processedUrl = null, confidence = 100, retried = false) {
   capturePreview.src = imageUrl;
   currentBlocks = blocks;
 
   preprocessPreviewWrap.classList.toggle('hidden', !processedUrl);
   if (processedUrl) preprocessPreview.src = processedUrl;
+
+  // Indicateur re-zoom / avertissement confiance
+  const conf = Math.round(confidence);
+  if (retried) {
+    qualityWarn.textContent = confidence >= 60
+      ? `✓ Recadrage auto appliqué (conf. ${conf}%)`
+      : `✓ Recadrage auto appliqué — conf. encore faible (${conf}%), zoome davantage si besoin`;
+    qualityWarn.className = 'quality-warn quality-info';
+    qualityWarn.classList.remove('hidden');
+  } else if (confidence < 60 && blocks.length > 0) {
+    qualityWarn.textContent = `⚠ Texte incertain (conf. ${conf}%) — zoome sur la bulle et recapture.`;
+    qualityWarn.className = 'quality-warn';
+    qualityWarn.classList.remove('hidden');
+  } else {
+    qualityWarn.className = 'quality-warn hidden';
+  }
 
   if (blocks.length === 0) {
     blocksCount.textContent = 'Aucun texte exploitable détecté';
@@ -233,6 +320,14 @@ function setBlocksCountLabel(total, done, complete = false) {
   }
 }
 
+// Ratio de mots de `en` (longueur > 2) présents verbatim dans `fr`.
+function _wordOverlap(fr, en) {
+  const frSet  = new Set(fr.split(/\s+/).filter(w => w.length > 2));
+  const enToks = en.split(/\s+/).filter(w => w.length > 2);
+  if (enToks.length === 0) return 0;
+  return enToks.filter(w => frSet.has(w)).length / enToks.length;
+}
+
 function applyTranslation(index, result) {
   const card   = document.getElementById(`block-card-${index}`);
   if (!card) return;
@@ -240,14 +335,31 @@ function applyTranslation(index, result) {
   const frCopy = card.querySelector('.btn-copy-fr');
 
   if (result.status === 'fulfilled') {
-    frText.textContent = result.value.text;
-    frText.classList.remove('translating', 'translate-error');
-    if (result.value.fromCache) frText.title = '⚡ Depuis le cache';
-    frCopy.disabled = false;
+    const translation = result.value.text;
+    const original    = (currentBlocks[index]?.text || '').trim().toLowerCase();
+    const translated  = translation.trim().toLowerCase();
+
+    // Détection traduction échouée : FR quasi identique au EN
+    const isCopy = original.length > 10 && translated === original;
+    const isNearCopy = !isCopy && original.length > 10 && _wordOverlap(translated, original) > 0.75;
+
+    if (isCopy || isNearCopy) {
+      frText.textContent = 'Traduction douteuse — texte peut contenir des erreurs OCR';
+      frText.classList.remove('translating');
+      frText.classList.add('translate-error');
+      frCopy.disabled = true;
+    } else {
+      frText.textContent = translation;
+      frText.classList.remove('translating', 'translate-error');
+      if (result.value.fromCache) frText.title = '⚡ Depuis le cache';
+      frCopy.disabled = false;
+    }
   } else {
     const code = result.reason?.code;
     frText.textContent = code === 'QUOTA'
       ? 'Quota gratuit dépassé, réessaie plus tard'
+      : code === 'UNSEGMENTED'
+      ? 'Mots collés — recapture en zoomant dans le navigateur'
       : 'Traduction indisponible';
     frText.classList.remove('translating');
     frText.classList.add('translate-error');

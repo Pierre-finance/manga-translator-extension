@@ -312,6 +312,22 @@ body {
   color: var(--success);
 }
 
+/* ── Quality warning ── */
+.quality-warn {
+  font-size: 12px;
+  color: var(--warning);
+  background: rgba(243, 156, 18, 0.08);
+  border: 1px solid rgba(243, 156, 18, 0.25);
+  border-radius: 6px;
+  padding: 6px 10px;
+  line-height: 1.5;
+}
+.quality-warn.quality-info {
+  color: #7dd3a8;
+  background: rgba(125, 211, 168, 0.08);
+  border-color: rgba(125, 211, 168, 0.25);
+}
+
 /* ── Blocks container ── */
 .blocks-container {
   display: flex;

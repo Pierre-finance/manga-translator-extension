@@ -105,6 +105,13 @@ async function translateText(textEN) {
   const t = (textEN || '').trim();
   if (t.length < 2) return { text: t, fromCache: false };
 
+  // Texte sans espaces OU contenant un token > 12 lettres → mots collés, OCR raté
+  const hasNoSpaces   = t.length > 15 && !/\s/.test(t);
+  const hasLongTokens = t.split(/\s+/).some(tok => tok.replace(/[^a-zA-Z]/g, '').length > 12);
+  if (hasNoSpaces || hasLongTokens) {
+    throw Object.assign(new Error('Mots collés'), { code: 'UNSEGMENTED' });
+  }
+
   const cached = getCached(t);
   if (cached !== null) return { text: cached, fromCache: true };
 

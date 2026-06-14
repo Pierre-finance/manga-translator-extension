@@ -20,7 +20,7 @@
       </button>
 
       <label class="toggle-row">
-        <input type="checkbox" id="preprocessToggle" />
+        <input type="checkbox" id="preprocessToggle" checked />
         <span class="toggle-label">Pré-traitement de l'image</span>
       </label>
     </div>
@@ -64,6 +64,8 @@
           </div>
         </div>
 
+        <div id="qualityWarn" class="quality-warn hidden"></div>
+
         <div class="blocks-header">
           <span id="blocksCount" class="blocks-count"></span>
           <div class="blocks-actions">
@@ -89,6 +91,7 @@
     <span>v0.1.0</span>
   </footer>
 
+  <script src="../lib/words/wordlist.js"></script>
   <script src="../lib/tesseract/tesseract.min.js"></script>
   <script src="preprocess.js"></script>
   <script src="cleantext.js"></script>
