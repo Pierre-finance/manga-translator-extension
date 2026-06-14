@@ -1,7 +1,6 @@
 // ── DOM refs ──────────────────────────────────────────────────────────────────
-const captureBtn    = document.getElementById('captureBtn');
-const btnLabel      = captureBtn.querySelector('.btn-label');
-const btnIcon       = captureBtn.querySelector('.btn-icon');
+const fullPageBtn  = document.getElementById('fullPageBtn');
+const captureBtn   = document.getElementById('captureBtn');
 
 const stateEmpty    = document.getElementById('stateEmpty');
 const stateProgress = document.getElementById('stateProgress');
@@ -34,13 +33,12 @@ const saveKeyBtn       = document.getElementById('saveKeyBtn');
 const saveKeyMsg       = document.getElementById('saveKeyMsg');
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let currentBlocks    = [];
-let capturedDataURL  = null;
+let currentBlocks   = [];
+let capturedDataURL = null;
 let selectorInstance = null;
 let lastRequestTime  = 0;
 
-const MIN_INTERVAL_MS = 6000; // 6s entre requêtes (protection quota/minute)
-
+const MIN_INTERVAL_MS = 6000;
 const ALL_STATES = [stateEmpty, stateProgress, stateSelect, stateSuccess, stateError];
 
 // ── UI helpers ─────────────────────────────────────────────────────────────────
@@ -50,9 +48,8 @@ function showState(el) {
 }
 
 function setLoading(loading) {
+  fullPageBtn.disabled = loading;
   captureBtn.disabled  = loading;
-  btnIcon.textContent  = loading ? '⏳' : '📸';
-  btnLabel.textContent = loading ? 'En cours…' : 'Capturer et traduire';
 }
 
 function updateStatus(text) {
@@ -84,7 +81,7 @@ async function checkKeyAndUpdateEmptyState() {
     emptyHint.innerHTML = 'Aucune clé API configurée.<br>Ouvre les <button class="btn-link" id="openSettingsFromHint">réglages ⚙️</button> pour en saisir une.';
     document.getElementById('openSettingsFromHint')?.addEventListener('click', openSettings);
   } else {
-    emptyHint.textContent = 'Clique sur Capturer pendant que tu lis ton scan';
+    emptyHint.textContent = 'Choisis un mode de capture ci-dessus.';
   }
 }
 
@@ -99,10 +96,7 @@ toggleKeyBtn.addEventListener('click', () => {
 
 saveKeyBtn.addEventListener('click', async () => {
   const key = apiKeyInput.value.trim();
-  if (!key) {
-    showSaveMsg('Saisis une clé avant d\'enregistrer.', false);
-    return;
-  }
+  if (!key) { showSaveMsg('Saisis une clé avant d\'enregistrer.', false); return; }
   await new Promise(r => chrome.storage.local.set({ geminiApiKey: key }, r));
   showSaveMsg('Clé enregistrée !', true);
   await checkKeyAndUpdateEmptyState();
@@ -115,21 +109,120 @@ function showSaveMsg(text, ok) {
   setTimeout(() => saveKeyMsg.classList.add('hidden'), 3000);
 }
 
-// ── Capture ────────────────────────────────────────────────────────────────────
-async function runPipeline() {
+// ── Guard : clé + throttle ────────────────────────────────────────────────────
+async function checkKeyAndThrottle() {
+  const hasKey = await new Promise(r =>
+    chrome.storage.local.get('geminiApiKey', d => r(!!d.geminiApiKey))
+  );
+  if (!hasKey) {
+    showError('Clé API Gemini non configurée. Ouvre les réglages (⚙️) pour la saisir.');
+    openSettings();
+    return false;
+  }
+  const elapsed = Date.now() - lastRequestTime;
+  if (elapsed < MIN_INTERVAL_MS) {
+    const wait = Math.ceil((MIN_INTERVAL_MS - elapsed) / 1000);
+    showError(`Patiente encore ${wait}s avant la prochaine analyse (limite gratuite Gemini).`);
+    return false;
+  }
+  return true;
+}
+
+// ── Resize + appel Gemini (commun aux deux modes) ─────────────────────────────
+
+// Redimensionne à maxWidth × maxHeight max, encode en JPEG pour réduire les tokens.
+function resizeForGemini(dataURL, maxWidth = 1080, maxHeight = 14000, quality = 0.85) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scaleW = Math.min(1, maxWidth  / img.width);
+      const scaleH = Math.min(1, maxHeight / img.height);
+      const scale  = Math.min(scaleW, scaleH);
+      const w = Math.round(img.width  * scale);
+      const h = Math.round(img.height * scale);
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      console.log(`[MT] Resize: ${img.width}×${img.height} → ${w}×${h} JPEG`);
+      resolve(c.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = reject;
+    img.src = dataURL;
+  });
+}
+
+async function sendToGemini(imageUrl) {
+  updateStatus('Optimisation de l\'image…');
+  const resized = await resizeForGemini(imageUrl);
+  const base64  = resized.split(',')[1];
+  lastRequestTime = Date.now();
+  updateStatus('Analyse par l\'IA…');
+  return analyzeImage(base64, 'image/jpeg');
+}
+
+// ── Mode page entière ──────────────────────────────────────────────────────────
+async function runFullPagePipeline() {
+  if (!(await checkKeyAndThrottle())) return;
+
   setLoading(true);
+
+  const progressHandler = msg => {
+    if (msg.type === 'CAPTURE_PROGRESS') {
+      updateStatus(`Capture de la page… (${msg.step}/${msg.total})`);
+    }
+  };
+  chrome.runtime.onMessage.addListener(progressHandler);
+
   try {
-    updateStatus('Capture en cours…');
+    updateStatus('Initialisation…');
     const result = await new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({ type: 'CAPTURE_TAB' }, (response) => {
+      chrome.runtime.sendMessage({ type: 'CAPTURE_FULL_PAGE' }, response => {
         if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
         else resolve(response);
       });
     });
-    if (!result)         throw new Error('Aucune réponse. Recharge l\'extension.');
-    if (!result.success) throw new Error(result.error);
 
-    capturedDataURL = result.dataURL;
+    if (!result?.ok) throw new Error(result?.error || 'Capture page entière échouée.');
+
+    const { images, captureCount } = result.data;
+    capturedDataURL = images[0]; // première image pour la prévisualisation
+    console.log(`[MT] Page entière reçue: ${captureCount} palier(s), ${images.length} segment(s)`);
+
+    let blocks = [];
+    for (let i = 0; i < images.length; i++) {
+      if (images.length > 1) updateStatus(`Analyse par l'IA… (segment ${i + 1}/${images.length})`);
+      const seg = await sendToGemini(images[i]);
+      blocks = blocks.concat(seg);
+    }
+    console.log('[MT] Gemini:', blocks.length, 'bloc(s)');
+    renderResults(capturedDataURL, blocks);
+  } catch (err) {
+    console.error('[MT] Erreur page entière:', err);
+    if (err.code === 'NO_KEY' || err.code === 'INVALID_KEY') {
+      showError(errMsg(err));
+      openSettings();
+    } else {
+      showError(errMsg(err));
+    }
+  } finally {
+    chrome.runtime.onMessage.removeListener(progressHandler);
+    setLoading(false);
+  }
+}
+
+// ── Mode écran visible ─────────────────────────────────────────────────────────
+async function runVisibleCapture() {
+  setLoading(true);
+  try {
+    updateStatus('Capture en cours…');
+    const result = await new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({ type: 'CAPTURE_TAB' }, response => {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else resolve(response);
+      });
+    });
+    if (!result?.ok) throw new Error(result?.error || 'Aucune réponse. Recharge l\'extension.');
+    capturedDataURL = result.data.dataURL;
     await showSelectState(capturedDataURL);
   } catch (err) {
     console.error('[MT] Erreur capture:', err);
@@ -153,46 +246,20 @@ async function showSelectState(dataURL) {
   });
 }
 
-// ── Analysis ───────────────────────────────────────────────────────────────────
+// ── Analyse (depuis le sélecteur de zone) ─────────────────────────────────────
 async function runAnalysis(selection) {
   if (!capturedDataURL) { showState(stateEmpty); return; }
-
-  // Vérification clé avant throttle (clé absente ≠ requête émise)
-  const hasKey = await new Promise(r =>
-    chrome.storage.local.get('geminiApiKey', d => r(!!d.geminiApiKey))
-  );
-  if (!hasKey) {
-    showError('Clé API Gemini non configurée. Ouvre les réglages (⚙️) pour la saisir.');
-    openSettings();
-    return;
-  }
-
-  // Throttle côté client (protection quota/minute)
-  const elapsed = Date.now() - lastRequestTime;
-  if (elapsed < MIN_INTERVAL_MS) {
-    const wait = Math.ceil((MIN_INTERVAL_MS - elapsed) / 1000);
-    showError(`Patiente encore ${wait}s avant la prochaine analyse (limite gratuite Gemini).`);
-    return;
-  }
+  if (!(await checkKeyAndThrottle())) return;
 
   setLoading(true);
   try {
     let imageUrl = capturedDataURL;
-
     if (selection) {
       updateStatus('Découpe de la zone…');
       imageUrl = await cropImage(capturedDataURL, selection);
     }
-
-    updateStatus('Compression de l\'image…');
-    const resized = await resizeForGemini(imageUrl);
-    const base64  = resized.split(',')[1];
-
-    lastRequestTime = Date.now();
-    updateStatus('Analyse par l\'IA…');
-    const blocks = await analyzeImage(base64, 'image/jpeg');
+    const blocks = await sendToGemini(imageUrl);
     console.log('[MT] Gemini:', blocks.length, 'bloc(s)');
-
     renderResults(capturedDataURL, blocks);
   } catch (err) {
     console.error('[MT] Erreur analyse:', err);
@@ -205,25 +272,6 @@ async function runAnalysis(selection) {
   } finally {
     setLoading(false);
   }
-}
-
-// Redimensionne à 1280px max et encode en JPEG pour réduire les tokens Gemini.
-function resizeForGemini(dataURL, maxDim = 1280, quality = 0.82) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-      const w = Math.round(img.width  * scale);
-      const h = Math.round(img.height * scale);
-      const c = document.createElement('canvas');
-      c.width = w; c.height = h;
-      c.getContext('2d').drawImage(img, 0, 0, w, h);
-      console.log(`[MT] Image redimensionnée: ${img.width}×${img.height} → ${w}×${h} JPEG`);
-      resolve(c.toDataURL('image/jpeg', quality));
-    };
-    img.onerror = reject;
-    img.src = dataURL;
-  });
 }
 
 function cropImage(dataURL, { x, y, w, h }) {
@@ -240,7 +288,7 @@ function cropImage(dataURL, { x, y, w, h }) {
   });
 }
 
-// ── Results ────────────────────────────────────────────────────────────────────
+// ── Résultats ──────────────────────────────────────────────────────────────────
 function renderResults(imageUrl, blocks) {
   capturePreview.src = imageUrl;
   currentBlocks = blocks;
@@ -259,7 +307,7 @@ function renderResults(imageUrl, blocks) {
   showState(stateSuccess);
 }
 
-// ── Block card ─────────────────────────────────────────────────────────────────
+// ── Carte de bloc ──────────────────────────────────────────────────────────────
 function createBlockCard(block, index) {
   const card = document.createElement('div');
   card.className = 'block-card';
@@ -302,22 +350,23 @@ async function copyToClipboard(text, btn) {
   } catch (err) { console.error('[MT] Clipboard:', err); }
 }
 
-// ── Event listeners ────────────────────────────────────────────────────────────
-captureBtn.addEventListener('click', runPipeline);
+// ── Écouteurs ──────────────────────────────────────────────────────────────────
+fullPageBtn.addEventListener('click', runFullPagePipeline);
+captureBtn.addEventListener('click', runVisibleCapture);
 
 analyzeSelBtn.addEventListener('click', () => {
   const sel = selectorInstance?.getRealSelection();
   runAnalysis(sel);
 });
 analyzeAllBtn.addEventListener('click', () => runAnalysis(null));
-recaptureBtn.addEventListener('click', runPipeline);
+recaptureBtn.addEventListener('click', runVisibleCapture);
 
 copyAllBtn.addEventListener('click', e => {
   const all = currentBlocks.map(b => `🇬🇧 ${b.en}\n🇫🇷 ${b.fr}`).join('\n\n');
   copyToClipboard(all, e.currentTarget);
 });
 
-newCaptureBtn.addEventListener('click', runPipeline);
+newCaptureBtn.addEventListener('click', () => showState(stateEmpty));
 
 retryBtn.addEventListener('click', () => {
   if (capturedDataURL) showSelectState(capturedDataURL);
