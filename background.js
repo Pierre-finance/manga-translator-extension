@@ -1,5 +1,14 @@
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+function dataUrlToBlob(dataUrl) {
+  const [header, b64] = dataUrl.split(',');
+  const mime  = header.match(/:(.*?);/)[1];
+  const bytes = atob(b64);
+  const buf   = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
+  return new Blob([buf], { type: mime });
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 async function base64FromBlob(blob) {
@@ -121,7 +130,7 @@ async function captureFullPage(tab) {
 
       for (const { dataUrl, scrollY } of captures) {
         if (scrollY + viewportHeight <= logY0 || scrollY >= logY1) continue;
-        const blob   = await fetch(dataUrl).then(r => r.blob());
+        const blob   = dataUrlToBlob(dataUrl);
         const bitmap = await createImageBitmap(blob);
         ctx.drawImage(bitmap, 0, Math.round(scrollY * scale) - chunkY0, finalW, scaledVH);
         bitmap.close();

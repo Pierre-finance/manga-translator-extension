@@ -1,4 +1,4 @@
-const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_MODEL = 'gemini-2.5-flash-lite';
 
 const GEMINI_PROMPT = `You are a manga translation assistant. Analyze this manga page or panel image.
 

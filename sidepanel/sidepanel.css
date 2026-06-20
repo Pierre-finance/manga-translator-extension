@@ -303,6 +303,29 @@ body {
   letter-spacing: 0.06em;
 }
 
+.mode-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.mode-option input { margin-top: 2px; flex-shrink: 0; }
+.mode-option small { color: var(--text-secondary); }
+.mode-option:has(input:checked) {
+  border-color: var(--accent-blue);
+  background: rgba(74, 144, 226, 0.08);
+}
+
 .api-key-row {
   display: flex;
   gap: 6px;
@@ -436,6 +459,40 @@ body {
 .btn-secondary.btn-copied {
   border-color: var(--success);
   color: var(--success);
+}
+
+/* ── Debug prétraitement / OCR (temporaire) ── */
+.debug-preprocess {
+  border: 2px dashed var(--warning);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: rgba(243, 156, 18, 0.05);
+}
+.debug-label {
+  font-size: 11px;
+  color: var(--warning);
+  margin-bottom: 6px;
+}
+.debug-preprocess img {
+  width: 100%;
+  border-radius: 4px;
+}
+.debug-raw-text {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+/* Badge de confiance OCR dans l'en-tête de carte */
+.block-conf {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-secondary);
 }
 
 /* ── Blocks container ── */

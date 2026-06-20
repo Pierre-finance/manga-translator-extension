@@ -20,13 +20,28 @@
       <button id="settingsCloseBtn" class="btn-icon-round">✕</button>
     </div>
     <div class="settings-body">
-      <label class="settings-label" for="apiKeyInput">Clé API Gemini</label>
-      <div class="api-key-row">
-        <input id="apiKeyInput" type="password" class="api-key-input" placeholder="AIza…" autocomplete="off" spellcheck="false" />
-        <button id="toggleKeyBtn" class="btn-toggle-key" title="Afficher / masquer">👁</button>
+      <label class="settings-label">Mode de traduction</label>
+      <div class="mode-options">
+        <label class="mode-option">
+          <input type="radio" name="mode" value="local" id="modeLocal" />
+          <span><b>Gratuit</b> — Tesseract + MyMemory<br><small>Local, aucune clé, qualité correcte</small></span>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="mode" value="ai" id="modeAi" />
+          <span><b>IA</b> — Gemini<br><small>Meilleure qualité, ta propre clé requise</small></span>
+        </label>
       </div>
-      <a class="settings-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Obtenir une clé gratuite →</a>
-      <button id="saveKeyBtn" class="capture-btn btn-save-key">Enregistrer</button>
+
+      <div id="aiKeySection" class="hidden">
+        <label class="settings-label" for="apiKeyInput">Clé API Gemini</label>
+        <div class="api-key-row">
+          <input id="apiKeyInput" type="password" class="api-key-input" placeholder="AIza…" autocomplete="off" spellcheck="false" />
+          <button id="toggleKeyBtn" class="btn-toggle-key" title="Afficher / masquer">👁</button>
+        </div>
+        <a class="settings-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Obtenir une clé gratuite →</a>
+      </div>
+
+      <button id="saveSettingsBtn" class="capture-btn btn-save-key">Enregistrer</button>
       <p id="saveKeyMsg" class="save-key-msg hidden"></p>
     </div>
   </div>
@@ -47,7 +62,7 @@
 
       <!-- État vide -->
       <div id="stateEmpty" class="state-empty">
-        <p class="state-hint" id="emptyHint">Clique sur Capturer pendant que tu lis ton scan</p>
+        <p class="state-hint" id="emptyHint">Choisis un mode de capture ci-dessus pour lire ton scan.</p>
       </div>
 
       <!-- État chargement / progression -->
@@ -72,6 +87,18 @@
       <!-- État succès -->
       <div id="stateSuccess" class="state-success hidden">
         <img id="capturePreview" class="capture-preview" alt="Capture" />
+
+        <!-- Debug prétraitement OCR (aperçu image envoyée à Tesseract) -->
+        <div id="debugPreprocessWrap" class="debug-preprocess hidden">
+          <p class="debug-label">🔬 Image prétraitée (OCR)</p>
+          <img id="debugPreprocessImg" alt="Image prétraitée" />
+        </div>
+
+        <!-- Debug OCR brut (diagnostic recall) -->
+        <div id="debugRawWrap" class="debug-preprocess hidden">
+          <p class="debug-label">🐛 OCR brut → gardé (mot(confiance))</p>
+          <pre id="debugRawText" class="debug-raw-text"></pre>
+        </div>
 
         <div class="blocks-header">
           <span id="blocksCount" class="blocks-count"></span>
@@ -98,6 +125,7 @@
     <span>v0.2.0</span>
   </footer>
 
+  <script src="../lib/tesseract/tesseract.min.js"></script>
   <script src="selector.js"></script>
   <script src="gemini.js"></script>
   <script src="sidepanel.js"></script>
