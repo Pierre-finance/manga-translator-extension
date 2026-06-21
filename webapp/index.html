@@ -2,9 +2,12 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f0f17" />
   <title>Manga Translator</title>
-  <link rel="stylesheet" href="sidepanel.css" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="../icons/icon128.png" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="header">
@@ -13,7 +16,7 @@
     <button id="settingsBtn" class="btn-icon-round" title="Réglages">⚙️</button>
   </header>
 
-  <!-- Panneau réglages (overlay) -->
+  <!-- Panneau réglages -->
   <div id="settingsPanel" class="settings-panel hidden">
     <div class="settings-header">
       <span class="settings-title">Réglages</span>
@@ -24,7 +27,7 @@
       <div class="mode-options">
         <label class="mode-option">
           <input type="radio" name="mode" value="local" id="modeLocal" />
-          <span><b>Gratuit</b> — Tesseract + MyMemory<br><small>Local, aucune clé</small></span>
+          <span><b>Gratuit</b> — Tesseract + MyMemory<br><small>Sur l'appareil, aucune clé</small></span>
         </label>
         <label class="mode-option">
           <input type="radio" name="mode" value="ai" id="modeAi" />
@@ -34,81 +37,57 @@
 
       <div id="aiKeySection" class="hidden">
         <label class="settings-label">Fournisseurs IA</label>
-        <p class="settings-hint">Active un ou plusieurs fournisseurs et colle ta clé. L'extension les essaie de haut en bas et bascule sur le suivant si l'un échoue (quota dépassé, etc.).</p>
+        <p class="settings-hint">Active un ou plusieurs fournisseurs et colle ta clé. L'appli les essaie de haut en bas et bascule sur le suivant si l'un échoue (quota, ou bloqué par le navigateur).</p>
         <div id="aiProvidersList"></div>
       </div>
 
-      <button id="saveSettingsBtn" class="capture-btn btn-save-key">Enregistrer</button>
+      <button id="saveSettingsBtn" class="btn-primary">Enregistrer</button>
       <p id="saveKeyMsg" class="save-key-msg hidden"></p>
     </div>
   </div>
 
   <main class="main">
     <div class="controls">
-      <button id="captureBtn" class="capture-btn">
-        <span class="btn-icon">📸</span>
-        <span class="btn-label">Écran visible</span>
-      </button>
+      <button id="importBtn" class="btn-primary"><span class="btn-icon">🖼️</span> Importer une image</button>
+      <button id="cameraBtn" class="btn-secondary"><span class="btn-icon">📷</span> Prendre une photo</button>
+      <input id="fileImport" type="file" accept="image/*" hidden />
+      <input id="fileCamera" type="file" accept="image/*" capture="environment" hidden />
     </div>
 
-    <section id="resultZone" class="result-zone">
-
-      <!-- État vide -->
+    <section class="result-zone">
       <div id="stateEmpty" class="state-empty">
-        <p class="state-hint" id="emptyHint">Choisis un mode de capture ci-dessus pour lire ton scan.</p>
+        <p class="state-hint">Importe une capture d'écran ou une photo de ton scan manga pour le traduire.</p>
       </div>
 
-      <!-- État chargement / progression -->
       <div id="stateProgress" class="state-progress hidden">
         <span class="progress-spinner">⏳</span>
         <p id="progressText" class="progress-text">Préparation…</p>
       </div>
 
-      <!-- État sélection de zone -->
-      <div id="stateSelect" class="state-select hidden">
-        <p class="select-hint">Dessine un rectangle sur la bulle à analyser</p>
-        <div class="select-canvas-wrap">
-          <canvas id="selectCanvas"></canvas>
-        </div>
-        <div class="select-actions">
-          <button id="analyzeSelBtn" class="capture-btn btn-sm">Analyser la sélection</button>
-          <button id="analyzeAllBtn" class="btn-secondary">Toute l'image</button>
-          <button id="recaptureBtn" class="btn-secondary">↩ Recapturer</button>
-        </div>
-      </div>
-
-      <!-- État succès -->
       <div id="stateSuccess" class="state-success hidden">
-        <img id="capturePreview" class="capture-preview" alt="Capture" />
-
+        <img id="capturePreview" class="capture-preview" alt="Image" />
         <div class="blocks-header">
           <span id="blocksCount" class="blocks-count"></span>
           <div class="blocks-actions">
-            <button id="copyAllBtn" class="btn-secondary">⧉ Tout copier</button>
-            <button id="newCaptureBtn" class="btn-secondary">↺ Nouvelle</button>
+            <button id="copyAllBtn" class="btn-mini">⧉ Tout copier</button>
+            <button id="newCaptureBtn" class="btn-mini">↺ Nouvelle</button>
           </div>
         </div>
-
         <div id="blocksContainer" class="blocks-container"></div>
       </div>
 
-      <!-- État erreur -->
       <div id="stateError" class="state-error hidden">
         <span class="error-icon">⚠️</span>
         <p id="errorMessage" class="error-message"></p>
-        <button id="retryBtn" class="btn-secondary btn-retry">Réessayer</button>
+        <button id="retryBtn" class="btn-mini">Réessayer</button>
       </div>
-
     </section>
   </main>
 
-  <footer class="footer">
-    <span>v0.2.0</span>
-  </footer>
+  <footer class="footer"><span>v0.1.0 · web</span></footer>
 
   <script src="../lib/tesseract/tesseract.min.js"></script>
-  <script src="selector.js"></script>
-  <script src="providers.js"></script>
-  <script src="sidepanel.js"></script>
+  <script src="../sidepanel/providers.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

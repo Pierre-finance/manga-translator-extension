@@ -4,12 +4,14 @@
 const OCR_UPSCALE = 4;
 const OCR_MARGIN  = 24;   // marge blanche autour du texte (px, sur l'image agrandie)
 
-function preprocessImageForOCR(dataURL) {
+// forceInvert : null = auto (selon la luminosité moyenne) ; true/false = polarité imposée
+// (utilisé par l'OCR double-polarité qui essaie les deux sens).
+function preprocessImageForOCR(dataURL, upscale = OCR_UPSCALE, forceInvert = null) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      const w = img.width  * OCR_UPSCALE;
-      const h = img.height * OCR_UPSCALE;
+      const w = img.width  * upscale;
+      const h = img.height * upscale;
       const c = document.createElement('canvas');
       c.width  = w + OCR_MARGIN * 2;
       c.height = h + OCR_MARGIN * 2;
@@ -38,7 +40,7 @@ function preprocessImageForOCR(dataURL) {
 
       // Polarité : Tesseract veut texte foncé sur fond clair.
       // Si l'image est globalement sombre (fond noir, texte blanc) → inverser.
-      const invert = (sum / n) < 128;
+      const invert = forceInvert === null ? (sum / n) < 128 : forceInvert;
       for (let i = 0; i < n; i++) {
         const v = invert ? 255 - gray[i] : gray[i];
         d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v;
@@ -215,22 +217,142 @@ async function recheckLowConfWords(words, ocrDataURL) {
   }
 }
 
-// Debug : dernier OCR brut + gardé (affiché dans le panneau pour diagnostic).
+// Debug : dernier OCR brut + gardé (diagnostic console uniquement).
 let lastOcrDebug = '';
 
-// Renvoie une liste de bulles : [{ confidence, words: [{text, confidence, bbox}] }]
-async function ocrImage(dataURL) {
+// OCR d'une image prétraitée → liste de mots {text, confidence, bbox} (sans regroupement).
+// recheck=false : on saute la relecture par mot (passe de localisation / zone déjà zoomée).
+async function ocrWords(dataURL, { recheck = true } = {}) {
   const worker = await getOcrWorker();
   const { data } = await worker.recognize(dataURL, {}, { blocks: true, text: true });
   let words = extractAllWords(data);
   const rawStr = words.map(w => `${w.text}(${w.confidence})`).join('  ');
-  console.log('[MT] OCR brut :', rawStr);
-  await recheckLowConfWords(words, dataURL);          // 1. corrige les mots en place
-  words = words.filter(w => w.confidence >= OCR_MIN_CONF);  // 2. élimine le bruit résiduel
+  if (recheck) await recheckLowConfWords(words, dataURL); // corrige les mots en place
+  words = words.filter(w => w.confidence >= OCR_MIN_CONF); // élimine le bruit résiduel
   const keptStr = words.map(w => `${w.text}(${w.confidence})`).join('  ');
+  return { words, rawStr, keptStr };
+}
+
+// Renvoie une liste de bulles : [{ confidence, words: [{text, confidence, bbox}] }]
+async function ocrImage(dataURL, opts) {
+  const { words, rawStr, keptStr } = await ocrWords(dataURL, opts);
+  console.log('[MT] OCR brut :', rawStr);
   console.log('[MT] OCR gardé :', keptStr);
   lastOcrDebug = `BRUT  : ${rawStr || '(rien)'}\n\nGARDÉ : ${keptStr || '(rien)'}`;
-  return groupWordsIntoBubbles(words);                // 3. regroupe en bulles
+  return groupWordsIntoBubbles(words);
+}
+
+// ── OCR double-polarité (recall) ───────────────────────────────────────────────
+// Certaines bulles ne ressortent PAS du tout quand la polarité globale est mauvaise
+// (page sombre + bulle claire, ou inverse) : Tesseract ne lit rien. On prétraite
+// donc l'image dans LES DEUX sens (texte foncé / texte clair), on OCR chaque version
+// et on fusionne par position (chaque bulle est lue dans le sens qui marche).
+// a et b partagent le même repère (même upscale + marge) → bbox comparables.
+function mergeWordsByPosition(a, b) {
+  const kept = a.slice();
+  for (const w of b) {
+    const cx = (w.bbox.x0 + w.bbox.x1) / 2, cy = (w.bbox.y0 + w.bbox.y1) / 2;
+    const tol = Math.max(8, w.bbox.y1 - w.bbox.y0);
+    const dup = kept.find(k => {
+      const kx = (k.bbox.x0 + k.bbox.x1) / 2, ky = (k.bbox.y0 + k.bbox.y1) / 2;
+      return Math.abs(kx - cx) < tol && Math.abs(ky - cy) < tol;
+    });
+    if (dup) {
+      if (w.confidence > dup.confidence) { dup.text = w.text; dup.confidence = w.confidence; dup.bbox = w.bbox; }
+    } else {
+      kept.push(w);
+    }
+  }
+  return kept;
+}
+
+async function ocrWordsRobust(rawDataURL, { upscale = OCR_UPSCALE, recheck = true } = {}) {
+  const [preNorm, preInv] = await Promise.all([
+    preprocessImageForOCR(rawDataURL, upscale, false),
+    preprocessImageForOCR(rawDataURL, upscale, true),
+  ]);
+  const A = await ocrWords(preNorm, { recheck });
+  const B = await ocrWords(preInv,  { recheck });
+  const words = mergeWordsByPosition(A.words, B.words);
+  const rawStr  = [A.rawStr, B.rawStr].filter(Boolean).join('  ');
+  const keptStr = words.map(w => `${w.text}(${w.confidence})`).join('  ');
+  return { words, rawStr, keptStr };
+}
+
+// Comme ocrImage mais en double-polarité (meilleur recall).
+async function ocrImageRobust(rawDataURL, opts) {
+  const { words, rawStr, keptStr } = await ocrWordsRobust(rawDataURL, opts);
+  console.log('[MT] OCR brut (2 polarités) :', rawStr);
+  console.log('[MT] OCR gardé :', keptStr);
+  lastOcrDebug = `BRUT  : ${rawStr || '(rien)'}\n\nGARDÉ : ${keptStr || '(rien)'}`;
+  return groupWordsIntoBubbles(words);
+}
+
+// ── Zoom automatique sur chaque zone de texte (écran visible) ───────────────────
+// Passe 1 : on localise les zones de texte sur l'image entière. Passe 2 : pour
+// chaque zone détectée, on recadre l'image SOURCE sur la zone (jamais coupée, car
+// alignée sur le texte) et on l'agrandit fort avant relecture — l'équivalent
+// automatique d'une sélection de zone manuelle, répété sur toutes les bulles.
+const ZONE_PAD    = 16;    // marge autour de la zone (px image source)
+const ZONE_TARGET = 1400;  // grand côté visé de la zone agrandie (px)
+const ZONE_MAX_UP = 10;    // facteur d'agrandissement max d'une zone
+
+// bbox d'une bulle (mots en repère prétraité ×OCR_UPSCALE + marge) → repère source.
+function bubbleBboxSource(bubble) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const w of bubble.words) {
+    x0 = Math.min(x0, w.bbox.x0); y0 = Math.min(y0, w.bbox.y0);
+    x1 = Math.max(x1, w.bbox.x1); y1 = Math.max(y1, w.bbox.y1);
+  }
+  const s = OCR_UPSCALE, m = OCR_MARGIN;
+  return { x0: (x0 - m) / s, y0: (y0 - m) / s, x1: (x1 - m) / s, y1: (y1 - m) / s };
+}
+
+// Recadre un rectangle de l'image source (+ marge), bornes clampées.
+function cropImageRect(img, bb, pad) {
+  const x = Math.max(0, Math.floor(bb.x0 - pad));
+  const y = Math.max(0, Math.floor(bb.y0 - pad));
+  const x1 = Math.min(img.naturalWidth,  Math.ceil(bb.x1 + pad));
+  const y1 = Math.min(img.naturalHeight, Math.ceil(bb.y1 + pad));
+  const w = x1 - x, h = y1 - y;
+  if (w <= 2 || h <= 2) return null;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(img, x, y, w, h, 0, 0, w, h);
+  return { url: c.toDataURL('image/png'), w, h };
+}
+
+function avgConf(words) {
+  return Math.round(words.reduce((s, w) => s + w.confidence, 0) / words.length);
+}
+
+async function ocrZonesZoomed(originalDataURL) {
+  // Passe 1 — localisation en DOUBLE POLARITÉ (recall : ne rate pas les bulles
+  // dont la polarité diffère du reste de la page), sans relecture par mot.
+  const zones = await ocrImageRobust(originalDataURL, { recheck: false });
+  if (!zones.length) return [];
+
+  // Passe 2 — zoom + relecture de chaque zone sur l'image source.
+  const origImg = await loadImage(originalDataURL);
+  const refined = [];
+  const dbgParts = [];
+  for (let i = 0; i < zones.length; i++) {
+    updateStatus(`Zoom des zones de texte… (${i + 1}/${zones.length})`);
+    const bb = bubbleBboxSource(zones[i]);
+    const crop = cropImageRect(origImg, bb, ZONE_PAD);
+    let words = null;
+    if (crop) {
+      // Plus la zone est petite, plus on zoome (plafonné) → texte bien net.
+      const up = Math.min(ZONE_MAX_UP, Math.max(OCR_UPSCALE, Math.round(ZONE_TARGET / Math.max(crop.w, crop.h))));
+      const { words: zw, keptStr } = await ocrWordsRobust(crop.url, { upscale: up, recheck: false }).catch(() => ({ words: [], keptStr: '' }));
+      if (zw.length) { words = zw; if (keptStr) dbgParts.push(keptStr); }
+    }
+    // On garde la bbox SOURCE de la zone (repère capture) → permet « Affiner » plus tard.
+    refined.push(words ? { confidence: avgConf(words), words, bbox: bb } : { ...zones[i], bbox: bb });
+  }
+  if (dbgParts.length) lastOcrDebug += `\n\nZOOM  : ${dbgParts.join('  ')}`;
+  console.log(`[MT] Zoom zones : ${zones.length} zone(s) relue(s)`);
+  return refined;
 }
 
 function cleanOcrText(rawText) {
@@ -247,6 +369,27 @@ function wordsToText(words) {
 // n'ont quasi jamais de chiffres collés aux mots → "7Si", "2}" = bruit OCR).
 function filterLexical(text) {
   return (text || '').split(' ').filter(t => /[a-zA-Z]/.test(t) && !/[0-9]/.test(t)).join(' ');
+}
+
+// Bruit d'interface (navigation de chapitres, menus, pub…). On masque déjà la
+// plupart de ces éléments fixed/sticky à la capture ; ceci attrape le résidu.
+// Liste volontairement restreinte à des mots qui n'apparaissent ~jamais en dialogue
+// pur, OU dont on ne supprime la bulle QUE si TOUS les tokens sont de l'interface
+// (donc "go home", "next time"… restent : ils ont d'autres mots).
+const UI_STOPWORDS = new Set([
+  'chapter', 'chapitre', 'chap', 'cap', 'episode', 'ep', 'volume', 'vol',
+  'manga', 'mangas', 'manhwa', 'manhua', 'webtoon', 'webtoons', 'scan', 'scans',
+  'prev', 'previous', 'next', 'home', 'menu', 'search', 'login', 'logout',
+  'signin', 'signup', 'register', 'bookmark', 'bookmarks', 'comments', 'comment',
+  'share', 'report', 'download', 'subscribe', 'advertisement', 'sponsored',
+  'accueil', 'connexion', 'suivant', 'precedent', 'rechercher', 'telecharger',
+]);
+
+// Une bulle est du bruit d'interface si TOUS ses tokens sont des mots d'interface.
+function isUiNoise(text) {
+  const toks = (text || '').toLowerCase().split(/\s+/)
+    .map(t => t.replace(/[^a-zà-ÿ]/gi, '')).filter(Boolean);
+  return !toks.length || toks.every(t => UI_STOPWORDS.has(t));
 }
 
 // E-mail transmis à MyMemory (param `de=`) → quota gratuit ~10× supérieur.
@@ -268,7 +411,6 @@ async function translateWithMyMemory(text) {
 }
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
-const fullPageBtn  = document.getElementById('fullPageBtn');
 const captureBtn   = document.getElementById('captureBtn');
 
 const stateEmpty    = document.getElementById('stateEmpty');
@@ -283,11 +425,7 @@ const analyzeSelBtn = document.getElementById('analyzeSelBtn');
 const analyzeAllBtn = document.getElementById('analyzeAllBtn');
 const recaptureBtn  = document.getElementById('recaptureBtn');
 
-const capturePreview       = document.getElementById('capturePreview');
-const debugPreprocessWrap  = document.getElementById('debugPreprocessWrap');
-const debugPreprocessImg   = document.getElementById('debugPreprocessImg');
-const debugRawWrap         = document.getElementById('debugRawWrap');
-const debugRawText         = document.getElementById('debugRawText');
+const capturePreview  = document.getElementById('capturePreview');
 const blocksContainer = document.getElementById('blocksContainer');
 const blocksCount     = document.getElementById('blocksCount');
 const errorMessage    = document.getElementById('errorMessage');
@@ -302,8 +440,7 @@ const settingsCloseBtn = document.getElementById('settingsCloseBtn');
 const modeLocal        = document.getElementById('modeLocal');
 const modeAi           = document.getElementById('modeAi');
 const aiKeySection     = document.getElementById('aiKeySection');
-const apiKeyInput      = document.getElementById('apiKeyInput');
-const toggleKeyBtn     = document.getElementById('toggleKeyBtn');
+const aiProvidersList  = document.getElementById('aiProvidersList');
 const saveSettingsBtn  = document.getElementById('saveSettingsBtn');
 const saveKeyMsg       = document.getElementById('saveKeyMsg');
 
@@ -312,7 +449,9 @@ let currentBlocks    = [];        // [{ en, fr, confidence }]
 let capturedDataURL  = null;
 let selectorInstance = null;
 let _ocrGeneration   = 0;          // anti-race entre deux analyses
-let translationMode  = 'local';    // 'local' (Tesseract+MyMemory) | 'ai' (Gemini)
+let translationMode  = 'local';    // 'local' (Tesseract+MyMemory) | 'ai' (fournisseurs)
+let aiKeys           = {};          // { gemini, openai, anthropic, mistral, groq }
+let aiEnabled        = {};          // { <id>: bool } — fournisseurs actifs (bascule)
 
 const ALL_STATES = [stateEmpty, stateProgress, stateSelect, stateSuccess, stateError];
 
@@ -323,8 +462,7 @@ function showState(el) {
 }
 
 function setLoading(loading) {
-  fullPageBtn.disabled = loading;
-  captureBtn.disabled  = loading;
+  captureBtn.disabled = loading;
 }
 
 function updateStatus(text) {
@@ -341,7 +479,7 @@ function errMsg(err) {
   return (err instanceof Error ? err.message : String(err)) || 'Erreur inconnue';
 }
 
-// ── Réglages (mode de traduction + clé Gemini) ────────────────────────────────
+// ── Réglages (mode + fournisseurs IA multi-clés) ──────────────────────────────
 function openSettings()  { settingsPanel.classList.remove('hidden'); }
 function closeSettings() { settingsPanel.classList.add('hidden'); }
 
@@ -351,11 +489,43 @@ function updateModeUI() {
   aiKeySection.classList.toggle('hidden', translationMode !== 'ai');
 }
 
+// Construit une ligne par fournisseur (case activer + champ clé + lien).
+function buildProviderRows() {
+  aiProvidersList.innerHTML = '';
+  for (const [id, meta] of Object.entries(AI_PROVIDERS)) {
+    const row = document.createElement('div');
+    row.className = 'provider-row';
+    row.innerHTML = `
+      <label class="provider-head">
+        <input type="checkbox" class="provider-toggle" data-prov="${id}">
+        <span class="provider-name">${meta.label} <small>${meta.note}</small></span>
+      </label>
+      <div class="api-key-row">
+        <input type="password" class="api-key-input provider-key" data-prov="${id}"
+               placeholder="${meta.keyHint}" autocomplete="off" spellcheck="false">
+        <button type="button" class="btn-toggle-key" title="Afficher / masquer">👁</button>
+      </div>
+      <a class="settings-link" href="${meta.keyUrl}" target="_blank" rel="noopener">${meta.noKey ? 'Installer →' : 'Obtenir une clé →'}</a>
+    `;
+    row.querySelector('.provider-toggle').checked = !!aiEnabled[id];
+    row.querySelector('.provider-key').value = aiKeys[id] || '';
+    row.querySelector('.btn-toggle-key').addEventListener('click', () => {
+      const inp = row.querySelector('.provider-key');
+      inp.type = inp.type === 'password' ? 'text' : 'password';
+    });
+    aiProvidersList.appendChild(row);
+  }
+}
+
 async function loadSettings() {
   const data = await new Promise(r =>
-    chrome.storage.local.get(['translationMode', 'geminiApiKey'], r));
+    chrome.storage.local.get(['translationMode', 'aiKeys', 'aiEnabled', 'geminiApiKey'], r));
   translationMode = data.translationMode === 'ai' ? 'ai' : 'local';
-  if (data.geminiApiKey) apiKeyInput.value = data.geminiApiKey;
+  aiKeys    = data.aiKeys    || {};
+  aiEnabled = data.aiEnabled || {};
+  // Migration de l'ancienne clé unique Gemini.
+  if (data.geminiApiKey && !aiKeys.gemini) { aiKeys.gemini = data.geminiApiKey; aiEnabled.gemini = true; }
+  buildProviderRows();
   updateModeUI();
 }
 
@@ -368,15 +538,27 @@ function showSaveMsg(text, ok) {
 
 async function saveSettings() {
   const mode = modeAi.checked ? 'ai' : 'local';
-  const key  = apiKeyInput.value.trim();
-  if (mode === 'ai' && !key) {
-    showSaveMsg('Le mode IA nécessite une clé API.', false);
+  const keys = {}, enabled = {};
+  aiProvidersList.querySelectorAll('.provider-row').forEach(row => {
+    const id = row.querySelector('.provider-key').dataset.prov;
+    keys[id]    = row.querySelector('.provider-key').value.trim();
+    enabled[id] = row.querySelector('.provider-toggle').checked;
+  });
+  if (mode === 'ai' && !Object.keys(AI_PROVIDERS).some(id => enabled[id] && (keys[id] || AI_PROVIDERS[id].noKey))) {
+    showSaveMsg('Active au moins un fournisseur IA (avec une clé, ou un local).', false);
     return;
   }
-  translationMode = mode;
-  await new Promise(r => chrome.storage.local.set({ translationMode: mode, geminiApiKey: key }, r));
+  translationMode = mode; aiKeys = keys; aiEnabled = enabled;
+  await new Promise(r => chrome.storage.local.set({ translationMode: mode, aiKeys: keys, aiEnabled: enabled }, r));
   showSaveMsg('Réglages enregistrés !', true);
   setTimeout(closeSettings, 800);
+}
+
+// Fournisseurs activés ET avec clé, dans l'ordre de bascule.
+function aiChain() {
+  return Object.keys(AI_PROVIDERS)
+    .filter(id => aiEnabled[id] && (aiKeys[id] || AI_PROVIDERS[id].noKey))
+    .map(id => ({ id, key: aiKeys[id] || '', model: AI_PROVIDERS[id].model }));
 }
 
 settingsBtn.addEventListener('click', openSettings);
@@ -384,13 +566,8 @@ settingsCloseBtn.addEventListener('click', closeSettings);
 modeLocal.addEventListener('change', () => aiKeySection.classList.add('hidden'));
 modeAi.addEventListener('change', () => aiKeySection.classList.remove('hidden'));
 saveSettingsBtn.addEventListener('click', saveSettings);
-toggleKeyBtn.addEventListener('click', () => {
-  const isPass = apiKeyInput.type === 'password';
-  apiKeyInput.type = isPass ? 'text' : 'password';
-  toggleKeyBtn.textContent = isPass ? '🙈' : '👁';
-});
 
-// ── Mode IA : resize + appel Gemini ───────────────────────────────────────────
+// ── Mode IA : resize + appel fournisseur (avec bascule) ───────────────────────
 // Vise une largeur cible (upscale petits crops, downscale grandes images) ; JPEG
 // pour limiter les tokens. Seul le mode IA l'utilise.
 function resizeForGemini(dataURL, { minWidth = 1200, maxWidth = 1536, maxHeight = 14000, maxUpscale = 6, quality = 0.9 } = {}) {
@@ -416,76 +593,46 @@ function resizeForGemini(dataURL, { minWidth = 1200, maxWidth = 1536, maxHeight 
 
 async function analyzeWithAI(imageUrl) {
   updateStatus('Optimisation de l\'image…');
-  const resized = await resizeForGemini(imageUrl);
-  updateStatus('Analyse par l\'IA…');
-  const blocks = await analyzeImage(resized.split(',')[1], 'image/jpeg');
-  // Gemini renvoie déjà { en, fr } ; on harmonise (pas de confiance).
-  return blocks.map(b => ({ en: b.en, fr: b.fr }));
+  const b64 = (await resizeForGemini(imageUrl)).split(',')[1];
+
+  const chain = aiChain();
+  if (!chain.length) throw aiError('Aucun fournisseur IA configuré. Ouvre ⚙️ Réglages.', 'NO_KEY');
+
+  // Bascule : on essaie chaque fournisseur dans l'ordre ; au moindre échec (quota,
+  // clé, réseau…) on passe au suivant. On ne lève qu'après les avoir tous tentés.
+  let lastErr;
+  for (const p of chain) {
+    try {
+      updateStatus(`Analyse IA — ${AI_PROVIDERS[p.id].label}…`);
+      const blocks = await analyzeWithProvider(p.id, p.key, p.model, b64, 'image/jpeg');
+      return blocks.map(b => ({ en: b.en, fr: b.fr }));
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[MT] ${p.id} a échoué (${err.code || '?'}) :`, err.message);
+    }
+  }
+  throw lastErr || aiError('Tous les fournisseurs IA ont échoué.', 'ALL_FAILED');
 }
 
 // ── Régions OCR → bulles affichables ──────────────────────────────────────────
-function regionsToBubbles(regions) {
-  return regions
-    .map(r => ({ confidence: r.confidence, en: cleanOcrText(filterLexical(wordsToText(r.words))) }))
-    .filter(b => (b.en.match(/[a-zA-Z]/g) || []).length >= OCR_MIN_BUBBLE_LETTERS);
+// Confiance sous laquelle une carte est signalée comme « à affiner » (UI).
+const LOW_CONF = 70;
+// Bruit OCR typique (onomatopées mal lues, ex. « row » pour 척!) : court ET peu sûr.
+const NOISE_CONF = 50;
+const NOISE_MAX_LETTERS = 3;
+
+function isLowConfNoise(b) {
+  if (b.confidence == null) return false;
+  const letters = (b.en.match(/[a-zA-Z]/g) || []).length;
+  return b.confidence < NOISE_CONF && letters <= NOISE_MAX_LETTERS;
 }
 
-// ── Mode page entière ──────────────────────────────────────────────────────────
-async function runFullPagePipeline() {
-  setLoading(true);
-
-  const progressHandler = msg => {
-    if (msg.type === 'CAPTURE_PROGRESS') {
-      updateStatus(`Capture de la page… (${msg.step}/${msg.total})`);
-    }
-  };
-  chrome.runtime.onMessage.addListener(progressHandler);
-
-  try {
-    updateStatus('Initialisation…');
-    const result = await new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({ type: 'CAPTURE_FULL_PAGE' }, response => {
-        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-        else resolve(response);
-      });
-    });
-
-    if (!result?.ok) throw new Error(result?.error || 'Capture page entière échouée.');
-
-    const { images, captureCount } = result.data;
-    capturedDataURL = images[0]; // première image pour la prévisualisation
-    console.log(`[MT] Page entière reçue: ${captureCount} palier(s), ${images.length} segment(s)`);
-
-    if (translationMode === 'ai') {
-      let blocks = [];
-      for (let i = 0; i < images.length; i++) {
-        if (images.length > 1) updateStatus(`Analyse IA… (segment ${i + 1}/${images.length})`);
-        blocks = blocks.concat(await analyzeWithAI(images[i]));
-      }
-      console.log('[MT] IA page entière:', blocks.length, 'bloc(s)');
-      renderCards(capturedDataURL, null, blocks, false);
-    } else {
-      let allBubbles = [];
-      let lastPreprocessed = null;
-      for (let i = 0; i < images.length; i++) {
-        updateStatus(`OCR… (segment ${i + 1}/${images.length})`);
-        const preprocessed = await preprocessImageForOCR(images[i]).catch(() => null);
-        if (!preprocessed) continue;
-        lastPreprocessed = preprocessed;
-        const regions = await ocrImage(preprocessed);
-        allBubbles = allBubbles.concat(regionsToBubbles(regions));
-      }
-      console.log('[MT] OCR page entière:', allBubbles.length, 'bulle(s)');
-      renderCards(capturedDataURL, lastPreprocessed, allBubbles, true);
-    }
-  } catch (err) {
-    console.error('[MT] Erreur page entière:', err);
-    showError(errMsg(err));
-    if (err.code === 'NO_KEY' || err.code === 'INVALID_KEY') openSettings();
-  } finally {
-    chrome.runtime.onMessage.removeListener(progressHandler);
-    setLoading(false);
-  }
+function regionsToBubbles(regions) {
+  return regions
+    .map(r => ({ confidence: r.confidence, en: cleanOcrText(filterLexical(wordsToText(r.words))), bbox: r.bbox }))
+    .filter(b => (b.en.match(/[a-zA-Z]/g) || []).length >= OCR_MIN_BUBBLE_LETTERS)
+    .filter(b => !isUiNoise(b.en))
+    .filter(b => !isLowConfNoise(b));
 }
 
 // ── Mode écran visible ─────────────────────────────────────────────────────────
@@ -541,14 +688,21 @@ async function runAnalysis(selection) {
       console.log('[MT] IA:', blocks.length, 'bloc(s)');
       renderCards(capturedDataURL, null, blocks, false);
     } else {
-      updateStatus('Prétraitement de l\'image…');
-      const preprocessed = await preprocessImageForOCR(imageUrl).catch(() => null);
-      if (!preprocessed) throw new Error('Échec du prétraitement de l\'image.');
-      updateStatus('OCR en cours…');
-      const regions = await ocrImage(preprocessed);
+      let regions;
+      if (selection) {
+        // Sélection manuelle : zoom adaptatif + double-polarité + relecture par mot
+        // (recheck) → le mode le plus précis ET le plus fiable, bulle par bulle.
+        updateStatus('OCR en cours…');
+        const up = Math.min(ZONE_MAX_UP, Math.max(OCR_UPSCALE, Math.round(ZONE_TARGET / Math.max(1, selection.w, selection.h))));
+        regions = await ocrImageRobust(imageUrl, { upscale: up, recheck: true });
+      } else {
+        // « Analyser tout » : détection des zones puis zoom auto sur chacune.
+        updateStatus('Détection des zones de texte…');
+        regions = await ocrZonesZoomed(imageUrl);
+      }
       const bubbles = regionsToBubbles(regions);
       console.log('[MT] OCR:', bubbles.length, 'bulle(s)');
-      renderCards(capturedDataURL, preprocessed, bubbles, true);
+      renderCards(capturedDataURL, null, bubbles, true);
     }
   } catch (err) {
     console.error('[MT] Erreur analyse:', err);
@@ -573,34 +727,14 @@ function cropImage(dataURL, { x, y, w, h }) {
   });
 }
 
-// ── Aperçu debug prétraitement ─────────────────────────────────────────────────
-function showDebugPreview(url) {
-  if (!url) { debugPreprocessWrap.classList.add('hidden'); return; }
-  debugPreprocessImg.src = url;
-  debugPreprocessWrap.classList.remove('hidden');
-}
-
-function hideDebugPreview() {
-  debugPreprocessWrap.classList.add('hidden');
-}
-
 // ── Résultats (commun aux deux modes) ─────────────────────────────────────────
 // items : [{ en, fr?, confidence? }]. isLocal = mode Tesseract (fr à traduire via
-// MyMemory + affichage debug) ; sinon mode IA (fr déjà fourni par Gemini).
-function renderCards(previewUrl, preprocessedUrl, items, isLocal) {
+// MyMemory, de façon asynchrone) ; sinon mode IA (fr déjà fourni par Gemini).
+function renderCards(previewUrl, _preprocessedUrl, items, isLocal) {
   const gen = ++_ocrGeneration;
   capturePreview.src = previewUrl;
 
-  if (isLocal) {
-    showDebugPreview(preprocessedUrl);
-    debugRawText.textContent = lastOcrDebug || '(aucun)';
-    debugRawWrap.classList.remove('hidden');
-  } else {
-    hideDebugPreview();
-    debugRawWrap.classList.add('hidden');
-  }
-
-  currentBlocks = items.map(b => ({ en: b.en, fr: b.fr || '', confidence: b.confidence }));
+  currentBlocks = items.map(b => ({ en: b.en, fr: b.fr || '', confidence: b.confidence, bbox: b.bbox }));
   blocksContainer.innerHTML = '';
 
   if (!items.length) {
@@ -627,36 +761,105 @@ function renderCards(previewUrl, preprocessedUrl, items, isLocal) {
   });
 }
 
+// Niveau de confiance OCR → classe couleur (vert / orange / rouge).
+function confClass(c) {
+  return c >= 75 ? 'conf-high' : c >= 50 ? 'conf-mid' : 'conf-low';
+}
+
 // ── Carte de bulle ──────────────────────────────────────────────────────────────
 function createBlockCard(block, index) {
   const card = document.createElement('div');
   card.className = 'block-card';
   card.id = `block-card-${index}`;
+  card.style.animationDelay = `${Math.min(index * 40, 400)}ms`;
 
-  const hasConf = block.confidence != null;
-  const frText  = block.fr ? escapeHtml(block.fr) : '⏳…';
+  const hasConf   = block.confidence != null;
+  const isLowConf = hasConf && block.confidence < LOW_CONF;
+  if (isLowConf) card.classList.add('low-conf');
+  const frText = block.fr ? escapeHtml(block.fr) : '<span class="block-pending">Traduction…</span>';
 
   card.innerHTML = `
     <div class="block-header">
-      <span class="block-num">${hasConf ? '🔤 Bulle' : '#'}${index + 1}</span>
-      ${hasConf ? `<span class="block-conf">conf ${block.confidence}%</span>` : ''}
-    </div>
-    <div class="block-lang block-en">
-      <span class="lang-flag">🇬🇧</span>
-      <p class="block-lang-text block-en-text">${escapeHtml(block.en)}</p>
-      <button class="btn-copy-block btn-copy-en">Copier</button>
+      <span class="block-num">${index + 1}</span>
+      <div class="block-header-right">
+        ${isLowConf ? '<button class="btn-refine" title="Améliorer cette zone (zoom + relecture)">🔍 Affiner</button>' : ''}
+        ${hasConf ? `<span class="block-conf ${confClass(block.confidence)}">${block.confidence}%</span>` : ''}
+      </div>
     </div>
     <div class="block-lang block-fr">
       <span class="lang-flag">🇫🇷</span>
       <p class="block-lang-text block-fr-text">${frText}</p>
-      <button class="btn-copy-block btn-copy-fr">Copier</button>
+      <button class="btn-copy-block btn-copy-fr" title="Copier la traduction">⧉</button>
+    </div>
+    <div class="block-lang block-en">
+      <span class="lang-flag">🇬🇧</span>
+      <p class="block-lang-text block-en-text">${escapeHtml(block.en)}</p>
+      <button class="btn-copy-block btn-copy-en" title="Copier l'original">⧉</button>
     </div>
   `;
 
   card.querySelector('.btn-copy-en').addEventListener('click', e => copyToClipboard(block.en, e.currentTarget));
   card.querySelector('.btn-copy-fr').addEventListener('click', e => copyToClipboard(currentBlocks[index]?.fr || '', e.currentTarget));
+  const refineBtn = card.querySelector('.btn-refine');
+  if (refineBtn) refineBtn.addEventListener('click', () => refineBubble(index));
 
   return card;
+}
+
+// « Affiner » : re-lit une zone peu sûre en la zoomant au max sur la capture.
+// Si on connaît la position de la bulle (mode « Toute l'image ») → relecture auto
+// d'un seul clic, mise à jour de la carte. Sinon → retour au sélecteur manuel.
+async function refineBubble(index) {
+  const block = currentBlocks[index];
+  const card  = document.getElementById(`block-card-${index}`);
+  if (!block || !card) return;
+
+  if (!block.bbox || !capturedDataURL) {           // pas de position connue → sélection manuelle
+    if (capturedDataURL) showSelectState(capturedDataURL);
+    return;
+  }
+
+  const gen = _ocrGeneration;
+  const btn = card.querySelector('.btn-refine');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  try {
+    const bb  = block.bbox;
+    const pad = Math.round(Math.max(8, (bb.y1 - bb.y0) * 0.4));
+    const sel = {
+      x: Math.max(0, Math.round(bb.x0 - pad)),
+      y: Math.max(0, Math.round(bb.y0 - pad)),
+      w: Math.round((bb.x1 - bb.x0) + pad * 2),
+      h: Math.round((bb.y1 - bb.y0) + pad * 2),
+    };
+    const crop = await cropImage(capturedDataURL, sel);
+    const up   = Math.min(ZONE_MAX_UP, Math.max(OCR_UPSCALE, Math.round(ZONE_TARGET / Math.max(1, Math.max(sel.w, sel.h)))));
+    // double-polarité + zoom + relecture par mot → recall et précision max
+    const bubbles = regionsToBubbles(await ocrImageRobust(crop, { upscale: up, recheck: true }));
+    if (gen !== _ocrGeneration) return;                      // résultats périmés
+
+    const en = bubbles.map(b => b.en).join(' ').trim();
+    if (!en) return;                                         // rien de mieux → on garde l'existant
+    const conf = bubbles.length
+      ? Math.round(bubbles.reduce((s, b) => s + (b.confidence || 0), 0) / bubbles.length)
+      : block.confidence;
+
+    block.en = en; block.confidence = conf;
+    card.querySelector('.block-en-text').textContent = en;
+    const confEl = card.querySelector('.block-conf');
+    if (confEl) { confEl.textContent = `${conf}%`; confEl.className = `block-conf ${confClass(conf)}`; }
+    card.classList.toggle('low-conf', conf != null && conf < LOW_CONF);
+
+    const frEl = card.querySelector('.block-fr-text');
+    frEl.innerHTML = '<span class="block-pending">Traduction…</span>';
+    translateWithMyMemory(en)
+      .then(fr  => { if (gen !== _ocrGeneration) return; block.fr = fr; frEl.textContent = fr; })
+      .catch(err => { if (gen !== _ocrGeneration) return; frEl.textContent = errMsg(err); });
+  } catch (err) {
+    console.error('[MT] Affiner:', err);
+  } finally {
+    const b2 = card.querySelector('.btn-refine');
+    if (b2) { b2.disabled = false; b2.textContent = '🔍 Affiner'; }
+  }
 }
 
 function escapeHtml(str) {
@@ -675,7 +878,6 @@ async function copyToClipboard(text, btn) {
 }
 
 // ── Écouteurs ──────────────────────────────────────────────────────────────────
-fullPageBtn.addEventListener('click', runFullPagePipeline);
 captureBtn.addEventListener('click', runVisibleCapture);
 
 analyzeSelBtn.addEventListener('click', () => {

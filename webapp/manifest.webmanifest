@@ -1,0 +1,16 @@
+{
+  "name": "Manga Translator",
+  "short_name": "MangaTrad",
+  "description": "OCR et traduction EN→FR de scans manga (sur l'appareil ou via IA).",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f0f17",
+  "theme_color": "#0f0f17",
+  "icons": [
+    { "src": "../icons/icon128.png", "sizes": "128x128", "type": "image/png" },
+    { "src": "../icons/icon128.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "../icons/icon128.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
