@@ -1,4 +1,4 @@
-// ── Fournisseurs d'IA (vision OCR + traduction EN→FR), BYOK ─────────────────────
+// ── Fournisseurs d'IA (vision OCR + traduction *→FR, source surtout EN), BYOK ────
 // Interface commune : analyzeWithProvider(id, key, model, base64, mimeType) → [{en, fr}]
 // Chaque fournisseur reçoit l'image + le même prompt et doit renvoyer {blocks:[{en,fr}]}.
 // MV3 + host_permissions <all_urls> ⇒ pas de blocage CORS ; il faut juste lister chaque
@@ -6,15 +6,15 @@
 
 const AI_PROMPT = `You are a manga translation assistant. Analyze this manga page or panel image.
 
-Identify every speech bubble or text box containing English text, in natural reading order (top to bottom, right to left for manga panels, or left to right if the layout is western-style).
+Identify every speech bubble or text box containing text, in natural reading order (top to bottom, right to left for manga panels, or left to right if the layout is western-style). The text is usually English, but other languages (Japanese, Korean, etc.) may also appear — handle them all.
 
 For each bubble:
-- Read the English text exactly as written, using visual context to resolve ambiguous characters (e.g., distinguish "I" from "l", "0" from "O", "STATS" from "STAYS").
-- Produce a natural, fluent French translation — adapted to the tone and register of manga dialogue, not word-for-word.
+- Read the source text exactly as written, in whatever language it is, using visual context to resolve ambiguous characters (e.g., distinguish "I" from "l", "0" from "O", "STATS" from "STAYS").
+- ALWAYS produce a natural, fluent French translation, whatever the source language — adapted to the tone and register of manga dialogue, not word-for-word.
 - For sound effects and onomatopoeia: use an obvious French equivalent if one exists; otherwise keep the original with a parenthetical note, e.g. "BOUM (bruit d'impact)".
 
-Respond ONLY with valid JSON, no markdown formatting, no explanation, strictly:
-{"blocks":[{"en":"...","fr":"..."}]}
+Respond ONLY with valid JSON, no markdown formatting, no explanation, strictly. The "en" field holds the source text as written (even if not English), the "fr" field holds the French translation, and the "lang" field holds the ISO 639-1 code of the source language (e.g. "en", "ja", "ko", "zh", "es", "de"):
+{"blocks":[{"en":"...","fr":"...","lang":"en"}]}
 
 If no text is found in the image: {"blocks":[]}`;
 
@@ -136,7 +136,7 @@ function parseAiBlocks(raw, label) {
   catch { throw aiError(`${label} : réponse non-JSON.`, 'JSON_PARSE'); }
   const blocks = Array.isArray(parsed) ? parsed : parsed?.blocks;
   if (!Array.isArray(blocks)) throw aiError(`${label} : format inattendu.`, 'BAD_FORMAT');
-  return blocks.map(b => ({ en: b.en || '', fr: b.fr || '' })).filter(b => b.en || b.fr);
+  return blocks.map(b => ({ en: b.en || '', fr: b.fr || '', lang: (b.lang || '').toLowerCase() })).filter(b => b.en || b.fr);
 }
 
 function httpErrorCode(status) {

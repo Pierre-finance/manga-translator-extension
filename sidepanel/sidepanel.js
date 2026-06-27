@@ -605,7 +605,7 @@ async function analyzeWithAI(imageUrl) {
     try {
       updateStatus(`Analyse IA — ${AI_PROVIDERS[p.id].label}…`);
       const blocks = await analyzeWithProvider(p.id, p.key, p.model, b64, 'image/jpeg');
-      return blocks.map(b => ({ en: b.en, fr: b.fr }));
+      return blocks.map(b => ({ en: b.en, fr: b.fr, lang: b.lang }));
     } catch (err) {
       lastErr = err;
       console.warn(`[MT] ${p.id} a échoué (${err.code || '?'}) :`, err.message);
@@ -734,7 +734,7 @@ function renderCards(previewUrl, _preprocessedUrl, items, isLocal) {
   const gen = ++_ocrGeneration;
   capturePreview.src = previewUrl;
 
-  currentBlocks = items.map(b => ({ en: b.en, fr: b.fr || '', confidence: b.confidence, bbox: b.bbox }));
+  currentBlocks = items.map(b => ({ en: b.en, fr: b.fr || '', lang: b.lang, confidence: b.confidence, bbox: b.bbox }));
   blocksContainer.innerHTML = '';
 
   if (!items.length) {
@@ -767,6 +767,17 @@ function confClass(c) {
 }
 
 // ── Carte de bulle ──────────────────────────────────────────────────────────────
+// Drapeau de la langue source. Mode local = OCR anglais seul ⇒ pas de `lang` ⇒ 🇬🇧.
+// Mode IA = `lang` (code ISO 639-1) renvoyé par le modèle ⇒ drapeau correspondant.
+const LANG_FLAGS = {
+  en: '🇬🇧', ja: '🇯🇵', ko: '🇰🇷', zh: '🇨🇳', fr: '🇫🇷', es: '🇪🇸', de: '🇩🇪',
+  it: '🇮🇹', pt: '🇵🇹', ru: '🇷🇺', nl: '🇳🇱', th: '🇹🇭', vi: '🇻🇳', ar: '🇸🇦',
+};
+function langToFlag(lang) {
+  if (!lang) return '🇬🇧';                 // pas de code (mode local) → anglais par défaut
+  return LANG_FLAGS[lang.slice(0, 2)] || '🌐'; // code connu → son drapeau, sinon générique
+}
+
 function createBlockCard(block, index) {
   const card = document.createElement('div');
   card.className = 'block-card';
@@ -792,7 +803,7 @@ function createBlockCard(block, index) {
       <button class="btn-copy-block btn-copy-fr" title="Copier la traduction">⧉</button>
     </div>
     <div class="block-lang block-en">
-      <span class="lang-flag">🇬🇧</span>
+      <span class="lang-flag">${langToFlag(block.lang)}</span>
       <p class="block-lang-text block-en-text">${escapeHtml(block.en)}</p>
       <button class="btn-copy-block btn-copy-en" title="Copier l'original">⧉</button>
     </div>
@@ -888,7 +899,7 @@ analyzeAllBtn.addEventListener('click', () => runAnalysis(null));
 recaptureBtn.addEventListener('click', runVisibleCapture);
 
 copyAllBtn.addEventListener('click', e => {
-  const all = currentBlocks.map(b => `🇬🇧 ${b.en}\n🇫🇷 ${b.fr}`).join('\n\n');
+  const all = currentBlocks.map(b => `${langToFlag(b.lang)} ${b.en}\n🇫🇷 ${b.fr}`).join('\n\n');
   copyToClipboard(all, e.currentTarget);
 });
 
