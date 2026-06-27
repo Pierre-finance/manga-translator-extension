@@ -393,10 +393,12 @@ function isUiNoise(text) {
 }
 
 // E-mail transmis à MyMemory (param `de=`) → quota gratuit ~10× supérieur.
-const MYMEMORY_EMAIL = 'pierredureux59@gmail.com';
+// Par-utilisateur (réglages), jamais codé en dur. Vide ⇒ quota anonyme.
+let myMemoryEmail = '';
 
 async function translateWithMyMemory(text) {
-  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|fr&de=${encodeURIComponent(MYMEMORY_EMAIL)}`;
+  const de = myMemoryEmail ? `&de=${encodeURIComponent(myMemoryEmail)}` : '';
+  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|fr${de}`;
   let resp;
   try {
     resp = await fetch(url);
@@ -441,6 +443,7 @@ const modeLocal        = document.getElementById('modeLocal');
 const modeAi           = document.getElementById('modeAi');
 const aiKeySection     = document.getElementById('aiKeySection');
 const aiProvidersList  = document.getElementById('aiProvidersList');
+const myMemoryEmailInput = document.getElementById('myMemoryEmail');
 const saveSettingsBtn  = document.getElementById('saveSettingsBtn');
 const saveKeyMsg       = document.getElementById('saveKeyMsg');
 
@@ -519,10 +522,12 @@ function buildProviderRows() {
 
 async function loadSettings() {
   const data = await new Promise(r =>
-    chrome.storage.local.get(['translationMode', 'aiKeys', 'aiEnabled', 'geminiApiKey'], r));
+    chrome.storage.local.get(['translationMode', 'aiKeys', 'aiEnabled', 'geminiApiKey', 'myMemoryEmail'], r));
   translationMode = data.translationMode === 'ai' ? 'ai' : 'local';
   aiKeys    = data.aiKeys    || {};
   aiEnabled = data.aiEnabled || {};
+  myMemoryEmail = data.myMemoryEmail || '';
+  if (myMemoryEmailInput) myMemoryEmailInput.value = myMemoryEmail;
   // Migration de l'ancienne clé unique Gemini.
   if (data.geminiApiKey && !aiKeys.gemini) { aiKeys.gemini = data.geminiApiKey; aiEnabled.gemini = true; }
   buildProviderRows();
@@ -548,8 +553,9 @@ async function saveSettings() {
     showSaveMsg('Active au moins un fournisseur IA (avec une clé, ou un local).', false);
     return;
   }
+  myMemoryEmail = (myMemoryEmailInput?.value || '').trim();
   translationMode = mode; aiKeys = keys; aiEnabled = enabled;
-  await new Promise(r => chrome.storage.local.set({ translationMode: mode, aiKeys: keys, aiEnabled: enabled }, r));
+  await new Promise(r => chrome.storage.local.set({ translationMode: mode, aiKeys: keys, aiEnabled: enabled, myMemoryEmail }, r));
   showSaveMsg('Réglages enregistrés !', true);
   setTimeout(closeSettings, 800);
 }

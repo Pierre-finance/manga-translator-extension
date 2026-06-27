@@ -271,9 +271,11 @@ function regionsToBubbles(regions) {
 }
 
 // ── Traduction MyMemory (mode local) ────────────────────────────────────────────
-const MYMEMORY_EMAIL = 'pierredureux59@gmail.com';   // ⚠️ à rendre par-utilisateur avant diffusion large
+// Pas d'e-mail codé en dur (vie privée + quota partagé). Vide ⇒ quota anonyme.
+const MYMEMORY_EMAIL = '';
 async function translateWithMyMemory(text) {
-  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|fr&de=${encodeURIComponent(MYMEMORY_EMAIL)}`;
+  const de = MYMEMORY_EMAIL ? `&de=${encodeURIComponent(MYMEMORY_EMAIL)}` : '';
+  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|fr${de}`;
   let resp;
   try { resp = await fetch(url); } catch { throw new Error('MyMemory : erreur réseau'); }
   if (!resp.ok) throw new Error(`MyMemory : HTTP ${resp.status}`);
