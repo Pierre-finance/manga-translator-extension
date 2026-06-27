@@ -14,3 +14,6 @@ Thumbs.db
 test-images/
 
 # Les icônes PNG dans icons/ sont versionnées intentionnellement
+
+# Paquet de soumission Chrome Web Store (artefact de build, régénérable)
+manga-translator-*.zip

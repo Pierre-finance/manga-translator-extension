@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Manga Translator",
-  "description": "OCR et traduction EN→FR de scans manga, directement depuis l'onglet en cours",
-  "version": "0.1.0",
+  "description": "OCR et traduction en français de scans manga (anglais, japonais, coréen…) directement depuis l'onglet en cours.",
+  "version": "1.0.0",
 
   "action": {
     "default_title": "Manga Translator",
