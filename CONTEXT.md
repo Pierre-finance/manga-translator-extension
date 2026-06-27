@@ -28,9 +28,10 @@ tolèrent l'absence de clé). La liste des réglages se génère depuis `AI_PROV
 > ⚠️ **Pas la peine d'ajouter Bedrock / Vertex / Azure OpenAI** : auth complexe
 > (SigV4/OAuth, endpoint par utilisateur), incompatible avec le BYOK simple. Écarté.
 
-> ⚠️ **MyMemory `&de=` (e-mail)** : `MYMEMORY_EMAIL` dans sidepanel.js pointe
-> actuellement vers l'e-mail du dev → **à retirer ou rendre par-utilisateur avant
-> publication** (sinon tous les utilisateurs partagent le quota du dev).
+> ✅ **MyMemory `&de=` (e-mail)** : plus aucun e-mail codé en dur. Extension =
+> champ « E-mail MyMemory (optionnel) » dans les réglages (`myMemoryEmail`,
+> `chrome.storage.local`), par-utilisateur. Webapp = constante vide. Vide ⇒ le
+> param `&de=` est omis (quota anonyme), sinon quota ~10× du compte de l'user.
 
 L'extension s'ouvre dans un panneau latéral (Side Panel API). Elle n'injecte rien
 dans la page. Les deux modes finissent par `renderCards()` (carte 🇬🇧/🇫🇷 par bulle).

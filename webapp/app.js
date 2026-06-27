@@ -271,9 +271,11 @@ function regionsToBubbles(regions) {
 }
 
 // ── Traduction MyMemory (mode local) ────────────────────────────────────────────
-const MYMEMORY_EMAIL = 'pierredureux59@gmail.com';   // ⚠️ à rendre par-utilisateur avant diffusion large
+// Pas d'e-mail codé en dur (vie privée + quota partagé). Vide ⇒ quota anonyme.
+const MYMEMORY_EMAIL = '';
 async function translateWithMyMemory(text) {
-  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|fr&de=${encodeURIComponent(MYMEMORY_EMAIL)}`;
+  const de = MYMEMORY_EMAIL ? `&de=${encodeURIComponent(MYMEMORY_EMAIL)}` : '';
+  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|fr${de}`;
   let resp;
   try { resp = await fetch(url); } catch { throw new Error('MyMemory : erreur réseau'); }
   if (!resp.ok) throw new Error(`MyMemory : HTTP ${resp.status}`);
@@ -323,7 +325,7 @@ async function analyzeWithAI(imageUrl) {
     try {
       setStatus(`Analyse IA — ${AI_PROVIDERS[p.id].label}…`);
       const blocks = await analyzeWithProvider(p.id, p.key, p.model, b64, 'image/jpeg');
-      return blocks.map(b => ({ en: b.en, fr: b.fr }));
+      return blocks.map(b => ({ en: b.en, fr: b.fr, lang: b.lang }));
     } catch (err) {
       lastErr = err;
       console.warn(`[MT] ${p.id} a échoué (${err.code || '?'}) :`, err.message);
@@ -454,7 +456,7 @@ const escapeHtml = s => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').r
 function renderCards(previewUrl, items, isLocal) {
   const gen = ++_gen;
   capturePreview.src = previewUrl;
-  currentBlocks = items.map(b => ({ en: b.en, fr: b.fr || '', confidence: b.confidence }));
+  currentBlocks = items.map(b => ({ en: b.en, fr: b.fr || '', lang: b.lang, confidence: b.confidence }));
   blocksContainer.innerHTML = '';
 
   if (!items.length) {
@@ -479,6 +481,17 @@ function renderCards(previewUrl, items, isLocal) {
   });
 }
 
+// Drapeau de la langue source. Mode local = OCR anglais seul ⇒ pas de `lang` ⇒ 🇬🇧.
+// Mode IA = `lang` (code ISO 639-1) renvoyé par le modèle ⇒ drapeau correspondant.
+const LANG_FLAGS = {
+  en: '🇬🇧', ja: '🇯🇵', ko: '🇰🇷', zh: '🇨🇳', fr: '🇫🇷', es: '🇪🇸', de: '🇩🇪',
+  it: '🇮🇹', pt: '🇵🇹', ru: '🇷🇺', nl: '🇳🇱', th: '🇹🇭', vi: '🇻🇳', ar: '🇸🇦',
+};
+function langToFlag(lang) {
+  if (!lang) return '🇬🇧';
+  return LANG_FLAGS[lang.slice(0, 2)] || '🌐';
+}
+
 function createBlockCard(block, index) {
   const card = document.createElement('div');
   card.className = 'block-card';
@@ -497,7 +510,7 @@ function createBlockCard(block, index) {
       <button class="btn-copy-block btn-copy-fr" title="Copier">⧉</button>
     </div>
     <div class="block-lang block-en">
-      <span class="lang-flag">🇬🇧</span>
+      <span class="lang-flag">${langToFlag(block.lang)}</span>
       <p class="block-lang-text block-en-text">${escapeHtml(block.en)}</p>
       <button class="btn-copy-block btn-copy-en" title="Copier">⧉</button>
     </div>
@@ -529,7 +542,7 @@ modeAi.addEventListener('change', () => aiKeySection.classList.remove('hidden'))
 $('saveSettingsBtn').addEventListener('click', saveSettings);
 
 $('copyAllBtn').addEventListener('click', e => {
-  const all = currentBlocks.map(b => `🇫🇷 ${b.fr}\n🇬🇧 ${b.en}`).join('\n\n');
+  const all = currentBlocks.map(b => `🇫🇷 ${b.fr}\n${langToFlag(b.lang)} ${b.en}`).join('\n\n');
   copyToClipboard(all, e.currentTarget);
 });
 $('newCaptureBtn').addEventListener('click', () => { fileImport.value = ''; fileCamera.value = ''; showState(stateEmpty); });
